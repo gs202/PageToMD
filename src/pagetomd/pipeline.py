@@ -112,6 +112,9 @@ def run(config: Config, *, fetcher: Fetcher | None = None) -> PipelineResult:
             output=_describe_target(target),
         )
 
+        if not config.verify_ssl:
+            log.warning("pipeline.ssl_verification_disabled")
+
         if fetcher is not None:
             # Caller owns the lifecycle — just use it.
             return _run_with_fetcher(config, fetcher, start_s, log)

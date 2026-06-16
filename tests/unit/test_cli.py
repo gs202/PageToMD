@@ -102,6 +102,7 @@ def test_help_mentions_locked_flags(runner: CliRunner) -> None:
         "--timeout",
         "--retries",
         "--user-agent",
+        "--no-verify-ssl",
         "--respect-robots",
         "--no-respect-robots",
         "--max-redirects",
@@ -432,6 +433,28 @@ def test_env_override_emits_info_log(
     # Values must never be logged.
     assert "false" not in str(entry).lower() or "fields" in entry  # sanity: only field NAMES
     assert entry.get("log_level") == "info"
+
+
+def test_no_verify_ssl_flag_plumbed(
+    runner: CliRunner,
+    fake_run: dict[str, Any],
+    fake_configure_logging: list[tuple[str, bool]],
+) -> None:
+    """``--no-verify-ssl`` sets ``verify_ssl=False`` on the config."""
+    result = runner.invoke(app, ["https://example.com/x", "--no-verify-ssl", "-o", "-"])
+    assert result.exit_code == 0
+    assert fake_run["cfg"].verify_ssl is False
+
+
+def test_verify_ssl_default_is_true(
+    runner: CliRunner,
+    fake_run: dict[str, Any],
+    fake_configure_logging: list[tuple[str, bool]],
+) -> None:
+    """Without ``--no-verify-ssl``, ``verify_ssl`` defaults to ``True``."""
+    result = runner.invoke(app, ["https://example.com/x", "-o", "-"])
+    assert result.exit_code == 0
+    assert fake_run["cfg"].verify_ssl is True
 
 
 def test_no_env_overrides_no_log_event(

@@ -135,6 +135,16 @@ def main(
             help="Override the outbound User-Agent header.",
         ),
     ] = None,
+    no_verify_ssl: Annotated[
+        bool,
+        typer.Option(
+            "--no-verify-ssl",
+            help=(
+                "Disable TLS certificate verification. Useful behind corporate "
+                "proxies that re-sign HTTPS traffic with an internal CA."
+            ),
+        ),
+    ] = False,
     respect_robots: Annotated[
         bool,
         typer.Option(
@@ -265,6 +275,7 @@ def main(
             timeout=timeout,
             retries=retries,
             user_agent=user_agent,
+            no_verify_ssl=no_verify_ssl,
             respect_robots=respect_robots,
             max_redirects=max_redirects,
             include_comments=include_comments,
@@ -303,6 +314,7 @@ def _build_config(
     timeout: float,
     retries: int,
     user_agent: str | None,
+    no_verify_ssl: bool,
     respect_robots: bool,
     max_redirects: int,
     include_comments: bool,
@@ -337,6 +349,7 @@ def _build_config(
         "timeout": timeout,
         "retries": retries,
         "user_agent": user_agent,
+        "verify_ssl": not no_verify_ssl,
         "respect_robots": respect_robots,
         "max_redirects": max_redirects,
         "include_comments": include_comments,
@@ -359,6 +372,9 @@ def _build_config(
 
     if debug:
         overrides["log_level"] = "debug"
+
+    if no_verify_ssl:
+        overrides["verify_ssl"] = False
 
     return Config.from_overrides(overrides), overrides
 

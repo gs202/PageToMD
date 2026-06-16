@@ -44,6 +44,7 @@ class Config(BaseSettings):
     timeout: float = Field(default=30.0, gt=0)
     retries: int = Field(default=3, ge=0)
     user_agent: str = _default_user_agent()
+    verify_ssl: bool = True
     respect_robots: bool = True
     follow_redirects: bool = True
     max_redirects: int = Field(default=10, gt=0)

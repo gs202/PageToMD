@@ -135,6 +135,16 @@ pagetomd https://example.com/blog/post \
 pagetomd https://example.com/private-but-mine --no-respect-robots -o out.md
 ```
 
+### Skip TLS verification (corporate proxies)
+
+If your network intercepts HTTPS traffic with an internal CA (common on corporate VPNs), `pagetomd` will fail with an `SSL: CERTIFICATE_VERIFY_FAILED` error. Pass `--no-verify-ssl` to disable certificate checks:
+
+```bash
+pagetomd https://example.com/blog/post --no-verify-ssl -o post.md
+```
+
+SSL errors are detected and fail immediately without retrying, so the error message will also suggest this flag.
+
 ### Override config via env var
 
 ```bash
@@ -186,6 +196,7 @@ A compact overview — see `pagetomd --help` for the full list.
 | `--timeout` | `30.0` | Per-request HTTP timeout (seconds). |
 | `--retries` | `3` | Retry attempts on transient failures. |
 | `--user-agent` | `pagetomd/<ver>` | Override the outbound `User-Agent`. |
+| `--no-verify-ssl` | `false` | Disable TLS certificate verification (for corporate proxies that re-sign HTTPS). |
 | `--respect-robots / --no-respect-robots` | `true` | Honour `robots.txt` (relaxed for loopback/RFC 1918). |
 | `--max-redirects` | `10` | Cap on the redirect chain length. |
 | `--include-comments / --no-include-comments` | `false` | Preserve HTML comments in the extracted document. |

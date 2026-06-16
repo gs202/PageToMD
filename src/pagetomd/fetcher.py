@@ -8,6 +8,7 @@ Provides :class:`HttpxFetcher` (synchronous, httpx-backed) and
 from __future__ import annotations
 
 import re
+import ssl
 import time
 import types
 from collections.abc import Callable, Mapping
@@ -140,17 +141,39 @@ class Fetcher(Protocol):
         ...
 
 
+def _is_ssl_cert_error(exc: BaseException) -> bool:
+    """Return ``True`` when ``exc`` wraps an SSL certificate verification failure.
+
+    SSL certificate errors will never self-heal on retry, so they should be
+    treated as terminal to avoid wasting time on exponential backoff.
+
+    Walks both ``__cause__`` and ``__context__`` chains with cycle detection
+    (some mocking libraries create circular exception chains).
+    """
+    seen: set[int] = set()
+    cause: BaseException | None = exc
+    while cause is not None and id(cause) not in seen:
+        if isinstance(cause, ssl.SSLCertVerificationError):
+            return True
+        seen.add(id(cause))
+        cause = cause.__cause__ or cause.__context__
+    return False
+
+
 def _is_retryable_exception(exc: BaseException) -> bool:
     """Return ``True`` when tenacity should retry after seeing ``exc``.
 
-    Transport errors are always retried. HTTP status errors are retried only
-    for the curated set of transient codes; everything else (e.g. ``404``)
-    is terminal.
+    Transport errors are retried unless they wrap an SSL certificate
+    verification failure (which will never self-heal). HTTP status errors
+    are retried only for the curated set of transient codes; everything
+    else (e.g. ``404``) is terminal.
     """
     if isinstance(exc, httpx.HTTPStatusError):
         status_code: int = exc.response.status_code
         return status_code in _RETRYABLE_STATUSES
-    return isinstance(exc, httpx.TransportError)
+    if isinstance(exc, httpx.TransportError):
+        return not _is_ssl_cert_error(exc)
+    return False
 
 
 class HttpxFetcher:
@@ -250,6 +273,7 @@ class HttpxFetcher:
         cfg = self._config
         return httpx.Client(
             timeout=cfg.timeout,
+            verify=cfg.verify_ssl,
             follow_redirects=cfg.follow_redirects,
             max_redirects=cfg.max_redirects,
             headers={
@@ -411,13 +435,19 @@ class HttpxFetcher:
         except httpx.HTTPError as exc:
             elapsed_ms = max(0, int((time.perf_counter() - start) * 1000))
             safe_url = redact_url(url)
-            raise FetchError(
+            err = FetchError(
                 f"Transport error fetching {safe_url}: {exc}",
                 url=safe_url,
                 status_code=None,
                 attempt=attempt_holder[0],
                 elapsed_ms=elapsed_ms,
-            ) from exc
+            )
+            if _is_ssl_cert_error(exc):
+                err.hint = (
+                    "TLS certificate verification failed. If you are behind a "
+                    "corporate proxy, re-run with --no-verify-ssl."
+                )
+            raise err from exc
 
         elapsed_ms = max(0, int((time.perf_counter() - start) * 1000))
         content_type = response.headers.get("Content-Type")
@@ -694,7 +724,10 @@ class PlaywrightFetcher:
         cfg = self._config
         timeout_ms = int(cfg.timeout * 1000)
         try:
-            context = browser.new_context(user_agent=cfg.user_agent)  # type: ignore[attr-defined]
+            context = browser.new_context(  # type: ignore[attr-defined]
+                user_agent=cfg.user_agent,
+                ignore_https_errors=not cfg.verify_ssl,
+            )
             context.set_default_navigation_timeout(timeout_ms)
             page = context.new_page()
             try:
