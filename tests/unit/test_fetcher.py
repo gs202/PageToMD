@@ -435,3 +435,42 @@ def test_verify_ssl_false_passed_to_client() -> None:
 def _respx_clean() -> Iterator[None]:
     """Belt-and-braces: every test starts and ends with a clean respx state."""
     yield
+
+
+def test_ssrf_safe_transport_rewrites_url_and_sets_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SSRFSafeTransport rewrites the request URL to the validated IP, sets Host and sni_hostname."""
+    from pagetomd.fetcher import SSRFSafeTransport
+    import pagetomd.fetcher
+
+    # Mock guard_url to return a specific IP address
+    monkeypatch.setattr(pagetomd.fetcher, "guard_url", lambda url: "1.1.1.1")
+
+    transport = SSRFSafeTransport()
+    request = httpx.Request("GET", "https://example.com:8443/page")
+
+    # Mock the superclass handle_request to inspect the request passed to it
+    captured_request = None
+    captured_url = None
+
+    def mock_handle_request(self, req: httpx.Request) -> httpx.Response:
+        nonlocal captured_request, captured_url
+        captured_request = req
+        captured_url = req.url
+        # Return a dummy response
+        return httpx.Response(200, request=req)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", mock_handle_request)
+
+    response = transport.handle_request(request)
+
+    # Verify that the request was rewritten correctly
+    assert captured_request is not None
+    assert captured_url is not None
+    assert captured_url.host == "1.1.1.1"
+    assert captured_url.port == 8443
+    assert captured_request.headers["Host"] == "example.com:8443"
+    assert captured_request.extensions["sni_hostname"] == "example.com"
+
+    # Verify that the original URL was restored on the request after handle_request returned
+    assert request.url == "https://example.com:8443/page"
+    assert response.url == "https://example.com:8443/page"

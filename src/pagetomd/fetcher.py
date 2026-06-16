@@ -176,6 +176,40 @@ def _is_retryable_exception(exc: BaseException) -> bool:
     return False
 
 
+class SSRFSafeTransport(httpx.HTTPTransport):
+    """SSRF-safe HTTP transport that prevents DNS rebinding attacks.
+
+    Resolves the hostname once, validates the IP address, and rewrites the
+    request URL to use the validated IP address directly. Passes the original
+    hostname in the ``Host`` header and configures SSL/TLS verification
+    against the original hostname using the ``sni_hostname`` extension.
+    """
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        original_url = request.url
+        original_host = request.url.host
+        if request.url.port is not None:
+            original_host = f"{original_host}:{request.url.port}"
+
+        # Guard and resolve the URL to a validated public IP address.
+        validated_ip = guard_url(str(original_url))
+
+        if validated_ip:
+            # Rewrite the request URL to use the validated IP address directly.
+            request.headers["Host"] = original_host
+            request.extensions["sni_hostname"] = request.url.host
+            request.url = request.url.copy_with(host=validated_ip)
+
+        try:
+            response = super().handle_request(request)
+        finally:
+            # Restore the original URL so that response.url and any redirect
+            # handling/logging see the original URL instead of the IP address.
+            request.url = original_url
+
+        return response
+
+
 class HttpxFetcher:
     """Synchronous :class:`Fetcher` backed by :class:`httpx.Client`.
 
@@ -271,7 +305,11 @@ class HttpxFetcher:
     def _build_client(self) -> httpx.Client:
         """Construct an :class:`httpx.Client` with SSRF-guarded redirect hooks."""
         cfg = self._config
+        transport = SSRFSafeTransport(
+            verify=cfg.verify_ssl,
+        )
         return httpx.Client(
+            transport=transport,
             timeout=cfg.timeout,
             verify=cfg.verify_ssl,
             follow_redirects=cfg.follow_redirects,
