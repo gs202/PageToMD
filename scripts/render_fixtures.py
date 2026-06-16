@@ -46,7 +46,7 @@ from pagetomd.pipeline import run  # noqa: E402
 _SKIP_FIXTURES: frozenset[str] = frozenset({"spa_vue.html"})
 
 # Directories the script reads from and writes to.
-FIXTURES_DIR: Path = _REPO_ROOT / "tests" / "fixtures" / "html"
+FIXTURES_DIR: Path = _REPO_ROOT / "tests" / "fixtures" / "pages"
 OUTPUT_DIR: Path = _REPO_ROOT / "build" / "fixture_md"
 
 # Synthetic base URL used when feeding a fixture into the pipeline. Kept
