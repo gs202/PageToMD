@@ -7,6 +7,7 @@ Provides :class:`HttpxFetcher` (synchronous, httpx-backed) and
 
 from __future__ import annotations
 
+import os
 import re
 import ssl
 import time
@@ -646,12 +647,13 @@ _PLAYWRIGHT_DEP_MESSAGE = (
     "uv tool install 'pagetomd[playwright]' && playwright install chromium"
 )
 
-# Launch hardening: cap V8 heap, avoid /dev/shm issues, disable timer throttling, skip zygote.
+# Launch hardening: cap V8 heap, avoid /dev/shm issues, disable timer throttling.
+# NOTE: ``--no-zygote`` was removed because newer Chromium rejects it when the
+# sandbox is enabled (``Zygote cannot be disabled if sandbox is enabled``).
 _CHROMIUM_LAUNCH_ARGS: Final[tuple[str, ...]] = (
     "--js-flags=--max-old-space-size=512",
     "--disable-dev-shm-usage",
     "--disable-background-timer-throttling",
-    "--no-zygote",
 )
 
 
@@ -682,7 +684,7 @@ class PlaywrightFetcher:
         self._playwright_cm = cm
         self._browser = playwright.chromium.launch(
             headless=True,
-            chromium_sandbox=True,
+            chromium_sandbox=not bool(os.environ.get("CI")),
             args=list(_CHROMIUM_LAUNCH_ARGS),
         )
         _log.debug("fetch.playwright.browser.launched", mode="context_manager")
@@ -732,7 +734,7 @@ class PlaywrightFetcher:
             with self._sync_playwright() as p:
                 browser = p.chromium.launch(
                     headless=True,
-                    chromium_sandbox=True,
+                    chromium_sandbox=not bool(os.environ.get("CI")),
                     args=list(_CHROMIUM_LAUNCH_ARGS),
                 )
                 _log.debug("fetch.playwright.browser.launched", mode="transient")
