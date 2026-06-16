@@ -122,8 +122,20 @@ _CRITICAL_MODULE_COVERAGE_THRESHOLDS: Mapping[str, float] = {
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     """Enforce per-module coverage thresholds at session teardown.
 
-    Skips silently when no ``.coverage`` file is present.
+    Skips silently when:
+    - no ``.coverage`` file is present, or
+    - only a subset of test markers was selected (``-m``).
+
+    In CI the per-module gate runs as a standalone script inside the
+    ``coverage`` job *after* all parallel test data has been combined.
+    Running it inside each per-category job would always fail because
+    a single category never covers the full codebase.
     """
+    # If a marker filter was passed (``-m "unit and not playwright"`` etc.)
+    # we are running a subset → skip the gate.
+    if session.config.option.markexpr:
+        return
+
     # No ``--cov`` was passed → ``.coverage`` was not written, nothing
     # to check.
     coverage_file = pathlib.Path(session.config.rootpath) / ".coverage"

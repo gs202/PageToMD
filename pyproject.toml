@@ -141,4 +141,7 @@ skip_covered = true
 # Total coverage must clear 85%. Per-module ≥90% on
 # extractor/converter/writer/postprocess is enforced separately via the
 # ``pytest_sessionfinish`` hook in ``tests/conftest.py``.
-fail_under = 85
+# fail_under is intentionally NOT set here — the global 85% threshold
+# is enforced only in the CI ``coverage`` job after combining data from
+# all parallel test runs.  Setting it here would trip on individual
+# ``pytest --cov`` invocations that run only a subset of the suite.

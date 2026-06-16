@@ -242,9 +242,11 @@ jobs:
           done
           uv run coverage combine
       - name: Coverage report
-        # Display the combined report and enforce the global ``fail_under``
-        # threshold configured in pyproject.toml.
-        run: uv run coverage report
+        # Display the combined report and enforce the global 85% threshold.
+        # This is set explicitly here (not in pyproject.toml) so that
+        # individual per-category ``pytest --cov`` jobs don't trip over
+        # the gate when they only run a subset of the test suite.
+        run: uv run coverage report --fail-under=85
       - name: Per-module coverage gate
         # Enforce the per-module ≥90% gate against the combined data,
         # reusing the threshold map from tests/conftest.py.
