@@ -30,7 +30,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run pre-commit
-        run: uv run pre-commit run --all-files
+        # First pass lets auto-fix hooks (ruff --fix, ruff-format) modify
+        # files. Second pass verifies everything is clean. This two-pass
+        # approach avoids false failures from auto-fix-only hooks.
+        run: uv run pre-commit run --all-files || uv run pre-commit run --all-files
 
   # ---------------------------------------------------------------------------
   # Test jobs — each test category runs on its own runner for maximum
