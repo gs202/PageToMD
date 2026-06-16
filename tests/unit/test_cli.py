@@ -6,12 +6,15 @@ exit-code mapping, and stderr/stdout discipline.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from typer.testing import CliRunner
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 import pagetomd.cli as cli_module
 from pagetomd import __version__
@@ -95,6 +98,9 @@ def test_help_mentions_locked_flags(runner: CliRunner) -> None:
     """Every documented flag appears somewhere in the help text."""
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
+    # Strip ANSI escape codes so Rich/Typer formatting doesn't break
+    # plain-text flag searches.
+    plain = _ANSI_RE.sub("", result.stdout)
     for flag in (
         "--output",
         "--overwrite",
@@ -118,7 +124,7 @@ def test_help_mentions_locked_flags(runner: CliRunner) -> None:
         "--debug",
         "--version",
     ):
-        assert flag in result.stdout, f"flag {flag!r} missing from --help output"
+        assert flag in plain, f"flag {flag!r} missing from --help output"
 
 
 def test_version_flag(runner: CliRunner) -> None:
