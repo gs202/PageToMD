@@ -1,0 +1,31 @@
+// markdownlint configuration for the pagetomd "AI-readable Markdown" contract.
+// This file is the CONTRACT — fix pipeline output, NOT the lint config.
+{
+  // -- Disabled rules and why --------------------------------------------
+  // MD013: line-length. The contract is that long URLs (especially in
+  // frontmatter and inline links) stay on a single line. Folding them
+  // would break ``source_url`` round-tripping and add token-bloating
+  // whitespace.
+  "MD013": false,
+
+  // MD041: first line h1. Some fixtures (e.g. ``code_heavy.html``)
+  // legitimately start with non-heading content when the source page
+  // omits a title and the post-processor has no synthetic title to
+  // prepend. The heading hierarchy is already enforced by the post-
+  // processor's monotonicity pass and the matching property test.
+  "MD041": false,
+
+  // MD034: bare URLs. ``markdownify`` emits bare-URL forms (``https://x``)
+  // for plain anchors so the source URL stays recoverable without an
+  // extra round-trip through the autolink reference table. This is
+  // deliberate and load-bearing for the LLM-friendliness contract.
+  "MD034": false,
+
+  // -- Configured rules (still enabled, narrowed scope) ------------------
+  // MD025: single H1 in the rendered body. We KEEP this rule because
+  // the AI-readiness contract requires exactly one top-level
+  // heading in the body. We disable ``front_matter_title`` so the YAML
+  // ``title:`` field — which is metadata, not a rendered heading — is
+  // not double-counted alongside the body's real H1.
+  "MD025": { "front_matter_title": "" }
+}

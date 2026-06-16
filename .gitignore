@@ -16,6 +16,7 @@ wheels/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.hypothesis/
 htmlcov/
 
 # Playwright
@@ -26,3 +27,8 @@ htmlcov/
 
 # Hatch-vcs generated version file
 src/pagetomd/_version.py
+
+# Environment files
+docs
+.env
+.env.*

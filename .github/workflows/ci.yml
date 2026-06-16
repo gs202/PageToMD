@@ -1,0 +1,125 @@
+# Actions pinned to commit SHAs. Dependabot keeps them updated weekly — see .github/dependabot.yml.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run pre-commit
+        run: uv run pre-commit run --all-files
+
+  test:
+    name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.13"]
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run tests
+        # ``--snapshot-details`` fails on stale snapshots.
+        # ``--cov`` triggers both the project-wide 85% gate and the per-module
+        # 90% gate in ``tests/conftest.py::pytest_sessionfinish``.
+        run: uv run pytest --cov --snapshot-details
+
+  test-playwright:
+    name: Test (Playwright extras)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install dependencies (incl. Playwright extra)
+        run: uv sync --extra dev --extra playwright
+      - name: Install Chromium for Playwright
+        # ``--with-deps`` installs the system shared libraries Chromium
+        # needs to run headless under Ubuntu's minimal container image.
+        run: uv run playwright install chromium --with-deps
+      - name: Run Playwright-marked tests
+        # ``-o asyncio_mode=strict`` avoids the session event loop that
+        # trips Playwright's sync-API guard.
+        run: uv run pytest -m playwright -v -o asyncio_mode=strict
+
+  markdownlint:
+    name: Markdownlint (fixture output)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: "20"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install Python dependencies
+        run: uv sync --extra dev
+      - name: Render fixture corpus to Markdown
+        # Renders each HTML fixture to ``build/fixture_md/<name>.md``.
+        run: uv run python scripts/render_fixtures.py
+      - name: Run markdownlint
+        # Lint failure = pipeline output drifted from the AI-readable contract.
+        run: npx --yes markdownlint-cli2@0.17.2 'build/fixture_md/*.md'
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install project dependencies
+        run: uv sync
+      - name: Run pip-audit
+        # Audit installed packages for known vulnerabilities.
+        run: uv run --with pip-audit pip-audit

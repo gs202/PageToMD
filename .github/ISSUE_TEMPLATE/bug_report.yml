@@ -1,0 +1,45 @@
+name: Bug Report
+description: Create a report to help us improve pagetomd
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for taking the time to fill out this bug report!"
+  - type: input
+    id: url
+    attributes:
+      label: URL (if applicable)
+      description: The URL that failed to convert correctly.
+      placeholder: https://example.com/article
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: to-reproduce
+    attributes:
+      label: Steps To Reproduce
+      description: Exact CLI command used.
+      placeholder: |
+        1. Run `pagetomd https://example.com/article`
+        2. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: pagetomd version
+      description: Output of `pagetomd --version`
+    validations:
+      required: true

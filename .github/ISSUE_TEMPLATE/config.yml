@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/gs202/pagetomd/security/advisories/new
+    about: Please report security vulnerabilities via GitHub Private Vulnerability Reporting — do NOT open a public issue.
+  - name: Question / discussion
+    url: https://github.com/gs202/pagetomd/discussions
+    about: For general questions, usage help, or ideas, please start a Discussion instead of opening an issue.
