@@ -57,26 +57,15 @@ pagetomd https://my-spa.example.com -o - --fetcher auto
 
 ## Cookbook
 
-### Convert a blog post and save to a slugged file
+### Pipe into an LLM
 
-When you omit `--output / -o`, `pagetomd` derives a filename from the page
-title (slugified, lowercase, hyphen-separated):
-
-```bash
-pagetomd https://example.com/blog/post
-# → ./why-we-rewrote-our-build-system-in-rust.md
-```
-
-### Stream to stdout and pipe into an LLM
-
-`-o -` writes the rendered Markdown body (with frontmatter) to stdout. All
-logs go to stderr, so the stream is safe to pipe:
+`-o -` writes the Markdown to stdout. All logs go to stderr, so the stream is safe to pipe:
 
 ```bash
 pagetomd https://example.com/blog/post -o - | llm "summarise this article in five bullet points"
 ```
 
-### Convert many URLs from a text file
+### Batch-convert from a file
 
 ```bash
 while read -r url; do
@@ -86,77 +75,6 @@ done < urls.txt
 
 Each successful conversion exits `0`; any non-zero exit leaves the loop
 running but is visible in stderr (see [Exit codes](#exit-codes) below).
-
-### Force deterministic output for snapshot testing
-
-`--no-fetched-at` omits the `fetched_at` line from the frontmatter, making
-the output byte-identical across runs:
-
-```bash
-pagetomd https://example.com/blog/post --no-fetched-at -o post.md
-```
-
-### Strip images for token-budget reasons
-
-```bash
-pagetomd https://example.com/blog/post --no-include-images -o post.md
-```
-
-Pair with `--no-include-links` to strip URLs too:
-
-```bash
-pagetomd https://example.com/blog/post --no-include-images --no-include-links -o post.md
-```
-
-### Convert an SPA with Playwright auto-fallback
-
-The `auto` fetcher tries `httpx` first and falls back to headless Chromium
-only when the response looks like a JavaScript shell:
-
-```bash
-pip install 'pagetomd[playwright]'
-playwright install chromium
-pagetomd https://my-spa.example.com -o - --fetcher auto
-```
-
-### Use a custom User-Agent
-
-Some CDNs reject the default `pagetomd/<ver>` UA:
-
-```bash
-pagetomd https://example.com/blog/post \
-  --user-agent "Mozilla/5.0 (compatible; MyCrawler/1.0; +https://example.org/bot)" \
-  -o post.md
-```
-
-### Bypass robots.txt (use responsibly)
-
-```bash
-pagetomd https://example.com/private-but-mine --no-respect-robots -o out.md
-```
-
-### Skip TLS verification (corporate proxies)
-
-If your network intercepts HTTPS traffic with an internal CA (common on corporate VPNs), `pagetomd` will fail with an `SSL: CERTIFICATE_VERIFY_FAILED` error. Pass `--no-verify-ssl` to disable certificate checks:
-
-```bash
-pagetomd https://example.com/blog/post --no-verify-ssl -o post.md
-```
-
-SSL errors are detected and fail immediately without retrying, so the error message will also suggest this flag.
-
-### Override config via env var
-
-```bash
-PAGETOMD_TIMEOUT=60 pagetomd https://slow-but-real.example.com -o out.md
-```
-
-### JSON logs for observability tooling
-
-```bash
-pagetomd https://example.com/blog/post --log-json -o post.md 2> events.jsonl
-jq -r 'select(.level == "warning") | .event' events.jsonl
-```
 
 ## Output shape
 
