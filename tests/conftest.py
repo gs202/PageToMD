@@ -112,11 +112,11 @@ def _detach_event_loop_for_playwright(request: pytest.FixtureRequest) -> Iterato
         return
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
 
-    if loop is not None and loop.is_running():
+    if loop is not None:
         # Can't actually stop the loop, but we can hide it from the
         # current thread so Playwright's ``get_running_loop()`` raises.
         asyncio._set_running_loop(None)  # type: ignore[attr-defined]
