@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>example-project — A demo CLI tool for testing pagetomd</title>
+    <meta name="description" content="Example project README rendered as HTML for snapshot testing.">
+</head>
+<body>
+    <article>
+        <h1>example-project</h1>
+
+        <p>
+            <a href="https://github.com/example/example-project/actions"><img src="https://img.shields.io/github/actions/workflow/status/example/example-project/ci.yml?branch=main" alt="CI status"></a>
+            <a href="https://pypi.org/project/example-project/"><img src="https://img.shields.io/pypi/v/example-project.svg" alt="PyPI"></a>
+            <a href="https://github.com/example/example-project/blob/main/LICENSE"><img src="https://img.shields.io/github/license/example/example-project.svg" alt="License"></a>
+        </p>
+
+        <p>A small, focused command-line utility that does one thing well: it converts a directory of YAML files into a single normalised JSON document, deduplicating keys and reporting conflicts. It is designed to be embedded in build pipelines where stability and predictable output matter more than fancy features.</p>
+
+        <h2>Table of contents</h2>
+        <ul>
+            <li><a href="#installation">Installation</a></li>
+            <li><a href="#quick-start">Quick start</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#roadmap">Roadmap</a></li>
+            <li><a href="#contributing">Contributing</a></li>
+            <li><a href="#license">License</a></li>
+        </ul>
+
+        <h2 id="installation">Installation</h2>
+        <p>The recommended way to install <code>example-project</code> is from PyPI. It is a pure-Python package with no compiled dependencies and supports Python 3.11 and newer on Linux, macOS, and Windows.</p>
+
+        <pre><code class="language-bash">pip install example-project
+example-project --version</code></pre>
+
+        <p>If you want the bleeding-edge development version, install directly from the main branch:</p>
+
+        <pre><code class="language-bash">pip install git+https://github.com/example/example-project.git@main</code></pre>
+
+        <h2 id="quick-start">Quick start</h2>
+        <p>Point the tool at a directory of YAML files. By default it writes the merged JSON to stdout, which makes it easy to compose with other Unix tools.</p>
+
+        <pre><code class="language-bash">example-project ./configs &gt; merged.json
+jq '.database.host' merged.json</code></pre>
+
+        <h2 id="features">Features</h2>
+        <ul>
+            <li>Deterministic key ordering across runs — diffs are stable.</li>
+            <li>Explicit conflict reporting when two files define the same key with different values.</li>
+            <li>Schema validation against a JSON Schema document, if one is provided.</li>
+            <li>Streaming mode for directories too large to fit in memory.</li>
+        </ul>
+
+        <h2 id="roadmap">Roadmap</h2>
+        <p>Planned work for the next minor release:</p>
+        <ul>
+            <li>[x] Add TOML input support alongside YAML.</li>
+            <li>[x] Publish prebuilt wheels for musl Linux.</li>
+            <li>[ ] Add a <code>--watch</code> flag for development workflows.</li>
+            <li>[ ] Native binary builds via PyOxidizer.</li>
+        </ul>
+
+        <h2 id="contributing">Contributing</h2>
+        <p>Contributions are welcome. Please read <a href="./CONTRIBUTING.md">CONTRIBUTING.md</a> before opening a pull request. We try to respond to issues within a week and to pull requests within two weeks.</p>
+
+        <p>The development setup is straightforward:</p>
+
+        <pre><code class="language-bash">git clone https://github.com/example/example-project.git
+cd example-project
+pip install -e ".[dev]"
+pytest</code></pre>
+
+        <h2 id="license">License</h2>
+        <p>Released under the MIT license. See <a href="./LICENSE">LICENSE</a> for full text.</p>
+    </article>
+</body>
+</html>

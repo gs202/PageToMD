@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Five Languages, One Problem: Reversing a Linked List</title>
+    <meta name="description" content="The same toy problem implemented in five languages, to compare ergonomics side by side.">
+</head>
+<body>
+    <article>
+        <h1>Five Languages, One Problem: Reversing a Linked List</h1>
+
+        <p>The "reverse a singly linked list" exercise is the lingua franca of programming interviews. It is also, despite its reputation, a surprisingly good lens for comparing language ergonomics. The shape of the problem — a tight loop, three pointer assignments, careful handling of the empty case — exposes how each language handles mutation, ownership, and idiom in microcosm. Here it is in five flavours.</p>
+
+        <h2>Python</h2>
+        <p>Python's reference semantics make this the simplest of the five. The only thing to watch is that we rebind <code>node</code> on each iteration rather than mutating it in place.</p>
+
+        <pre><code class="language-python">def reverse(head):
+    prev = None
+    node = head
+    while node is not None:
+        nxt = node.next
+        node.next = prev
+        prev = node
+        node = nxt
+    return prev</code></pre>
+
+        <h2>JavaScript</h2>
+        <p>Essentially the same shape as Python; the only differences are punctuation and the slightly chunkier null-check.</p>
+
+        <pre><code class="language-javascript">function reverse(head) {
+  let prev = null;
+  let node = head;
+  while (node !== null) {
+    const next = node.next;
+    node.next = prev;
+    prev = node;
+    node = next;
+  }
+  return prev;
+}</code></pre>
+
+        <h2>Rust</h2>
+        <p>Rust forces the question of ownership to the surface. The clean version uses <code>Option::take</code> to move the tail out without leaving a stale reference behind, which is exactly the move the borrow checker is designed to police.</p>
+
+        <pre><code class="language-rust">fn reverse(mut head: Option&lt;Box&lt;Node&gt;&gt;) -&gt; Option&lt;Box&lt;Node&gt;&gt; {
+    let mut prev = None;
+    while let Some(mut node) = head {
+        head = node.next.take();
+        node.next = prev;
+        prev = Some(node);
+    }
+    prev
+}</code></pre>
+
+        <h2>Bash</h2>
+        <p>Bash does not have linked lists in any honest sense, but it does have arrays, and reversing one is a useful proxy. The idiom below uses parameter expansion to avoid spawning a subshell, which matters in a hot loop.</p>
+
+        <pre><code class="language-bash">reverse_array() {
+  local -n src=$1
+  local -a out=()
+  local i
+  for (( i=${#src[@]}-1; i&gt;=0; i-- )); do
+    out+=("${src[i]}")
+  done
+  src=("${out[@]}")
+}</code></pre>
+
+        <h2>SQL</h2>
+        <p>SQL is the most jarring of the five because the question itself has to be reframed. There is no "linked list" — there is a table whose rows reference each other by id. Reversing the chain means inverting which column points to which, expressed as an update over a recursive common table expression.</p>
+
+        <pre><code class="language-sql">WITH RECURSIVE chain AS (
+    SELECT id, next_id, 0 AS position
+    FROM nodes
+    WHERE id = (SELECT id FROM nodes WHERE prev_id IS NULL)
+    UNION ALL
+    SELECT n.id, n.next_id, c.position + 1
+    FROM nodes n
+    JOIN chain c ON n.id = c.next_id
+)
+UPDATE nodes
+SET next_id = (
+    SELECT next.id
+    FROM chain cur
+    JOIN chain next ON next.position = cur.position - 1
+    WHERE cur.id = nodes.id
+);</code></pre>
+
+        <h2>What the exercise reveals</h2>
+        <p>The Python and JavaScript versions look almost identical because both languages model the problem identically: mutable references, garbage collection, no ceremony. Rust is forced to be more explicit, and the result is more verbose but arguably clearer about what is actually happening to the memory. Bash and SQL aren't really doing the same thing at all — they reveal the gap between "the problem as stated" and "the closest equivalent the language supports." That gap is where most real engineering happens.</p>
+    </article>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Sample Tables for Wide-Table Rendering Tests</title>
+    <meta name="description" content="Three tables of different widths used to exercise pagetomd's wide-tables strategies.">
+</head>
+<body>
+    <article>
+        <h1>Sample Tables for Wide-Table Rendering Tests</h1>
+
+        <p>This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three <code>wide_tables</code> rendering strategies — <code>kv</code>, <code>html</code>, and <code>drop</code> — against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.</p>
+
+        <h2>Narrow table (three columns)</h2>
+        <p>The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every <code>wide_tables</code> setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.</p>
+
+        <table>
+            <thead>
+                <tr><th>Fruit</th><th>Colour</th><th>Calories</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Apple</td><td>Red</td><td>95</td></tr>
+                <tr><td>Banana</td><td>Yellow</td><td>105</td></tr>
+                <tr><td>Cherry</td><td>Red</td><td>50</td></tr>
+            </tbody>
+        </table>
+
+        <h2>Boundary table (exactly five columns)</h2>
+        <p>The second table has exactly five columns, which is the precise boundary case for the wide-table threshold. Pagetomd's threshold is set so that five columns is still considered narrow and renders as a normal GFM table; the next column over the line — six — is what triggers the wide-table fallback. This boundary test guards against off-by-one regressions in the column counting logic.</p>
+
+        <table>
+            <thead>
+                <tr><th>SKU</th><th>Product</th><th>Price</th><th>Stock</th><th>Warehouse</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>A001</td><td>Widget</td><td>$9.99</td><td>120</td><td>East</td></tr>
+                <tr><td>A002</td><td>Gadget</td><td>$14.50</td><td>45</td><td>West</td></tr>
+                <tr><td>A003</td><td>Sprocket</td><td>$3.25</td><td>800</td><td>East</td></tr>
+            </tbody>
+        </table>
+
+        <h2>Wide table (eight columns)</h2>
+        <p>The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under <code>kv</code> the table should be rendered as a sequence of key-value lists, one per row. Under <code>html</code> the original markup should be preserved verbatim. Under <code>drop</code> the table should be replaced by a short placeholder noting that a wide table was omitted.</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th><th>Region</th><th>Product</th><th>Units</th>
+                    <th>Revenue</th><th>Cost</th><th>Margin</th><th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>2024-01-15</td><td>NA</td><td>Widget</td><td>1200</td>
+                    <td>$11988</td><td>$7200</td><td>$4788</td><td>Launch</td>
+                </tr>
+                <tr>
+                    <td>2024-02-15</td><td>EU</td><td>Gadget</td><td>850</td>
+                    <td>$12325</td><td>$5950</td><td>$6375</td><td>Steady</td>
+                </tr>
+                <tr>
+                    <td>2024-03-15</td><td>APAC</td><td>Sprocket</td><td>3400</td>
+                    <td>$11050</td><td>$6800</td><td>$4250</td><td>Promo</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>The closing paragraph is here primarily so that the article body extends past the final table, which helps trafilatura recognise the table as part of the article rather than as trailing boilerplate. In practice this kind of padding is almost always present in real-world pages, but in synthetic fixtures it has to be added explicitly.</p>
+    </article>
+</body>
+</html>

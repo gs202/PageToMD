@@ -1,0 +1,596 @@
+# serializer version: 1
+# name: test_blog
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: Why We Rewrote Our Build System in Rust
+  author: Jane Doe
+  date: '2024-08-14'
+  description: A retrospective on migrating our monorepo build pipeline from Python to Rust, and what we learned along the way.
+  site_name: Example Engineering Blog
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Why We Rewrote Our Build System in Rust
+  
+  Three years ago, our monorepo build pipeline was a sprawling Python application held together with shell scripts and prayer. It worked, mostly, but every incremental change took longer than the last, and onboarding new engineers meant walking them through a maze of implicit assumptions baked into a decade of accumulated tooling. This is the story of how we rewrote it in Rust, what we got right, what we got wrong, and what we would do differently if we had to start over.
+  
+  The motivation was simple: developer feedback loops were dying. A clean build on a developer laptop took fourteen minutes. CI runs averaged thirty-eight. Engineers were context-switching to Slack, to email, to side projects — anywhere but the build that was supposed to finish in under a minute on a respectable machine.
+  
+  ## What we measured before changing anything
+  
+  Before writing a single line of replacement code, we instrumented the existing pipeline. The headline finding was that we spent more time waiting on the Python interpreter to import packages than we did actually doing work. A representative build spent forty-one percent of its wall-clock time inside `importlib`, twenty-three percent inside subprocess overhead spawning helper binaries, and only the remaining thirty-six percent doing genuinely useful work like compilation and linking.
+  
+  That ratio was the smoking gun. No amount of incremental tuning was going to recover those two-thirds of wasted time without a fundamentally different architecture. We needed a single long-lived process that could hold the dependency graph in memory, fan out work to a pool of threads, and avoid the per-task interpreter startup penalty entirely.
+  
+  ## Why Rust and not Go or C++
+  
+  We evaluated three candidate languages: Rust, Go, and C++. Each could plausibly deliver the performance we needed; the choice came down to ergonomics, hiring, and long-term maintenance. Rust won for three reasons. The borrow checker eliminated an entire class of concurrency bugs that the build system would otherwise be uniquely prone to. The cargo ecosystem gave us a credible story for shipping cross-platform binaries without bespoke packaging scripts. And the team had three Rust enthusiasts already willing to lead the effort.
+  
+  ## The migration itself
+  
+  We ran both build systems side by side for nine months. New build rules landed in Rust; existing rules were ported on a rolling basis, prioritised by how often they were rebuilt. Every nightly run produced a diff report comparing the two systems' outputs file-by-file, byte-by-byte. Any mismatch blocked the migration of that rule until we understood it.
+  
+  This dual-running phase was the single most important decision we made. It caught seventeen subtle correctness regressions before they reached anyone's laptop, including one case where a path normalisation difference would have silently invalidated three months of incremental build caches.
+  
+  ## What we wish we'd done sooner
+  
+  Two lessons stand out. First: we should have started by writing the new system's command-line interface and treated it as a strict contract from day one. We didn't, and the result was three painful weeks of CLI thrashing in the final stretch as users gave us feedback on flag names and exit codes. Second: we should have invested in a query language for the build graph earlier. Once we had it, debugging mysterious incremental-build failures went from a half-day archaeological dig to a five-minute one-liner.
+  
+  If you're considering a similar rewrite, our advice is unromantic but clear: measure first, run in parallel for longer than you think you need to, and treat your CLI as a public API the moment you have a second user.
+  
+  '''
+# ---
+# name: test_code_heavy
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: 'Five Languages, One Problem: Reversing a Linked List'
+  description: The same toy problem implemented in five languages, to compare ergonomics side by side.
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Five Languages, One Problem: Reversing a Linked List
+  
+  The "reverse a singly linked list" exercise is the lingua franca of programming interviews. It is also, despite its reputation, a surprisingly good lens for comparing language ergonomics. The shape of the problem — a tight loop, three pointer assignments, careful handling of the empty case — exposes how each language handles mutation, ownership, and idiom in microcosm. Here it is in five flavours.
+  
+  ## Python
+  
+  Python's reference semantics make this the simplest of the five. The only thing to watch is that we rebind `node` on each iteration rather than mutating it in place.
+  
+  ```python
+  def reverse(head):
+      prev = None
+      node = head
+      while node is not None:
+          nxt = node.next
+          node.next = prev
+          prev = node
+          node = nxt
+      return prev
+  ```
+  
+  ## JavaScript
+  
+  Essentially the same shape as Python; the only differences are punctuation and the slightly chunkier null-check.
+  
+  ```javascript
+  function reverse(head) {
+    let prev = null;
+    let node = head;
+    while (node !== null) {
+      const next = node.next;
+      node.next = prev;
+      prev = node;
+      node = next;
+    }
+    return prev;
+  }
+  ```
+  
+  ## Rust
+  
+  Rust forces the question of ownership to the surface. The clean version uses `Option::take` to move the tail out without leaving a stale reference behind, which is exactly the move the borrow checker is designed to police.
+  
+  ```rust
+  fn reverse(mut head: Option<Box<Node>>) -> Option<Box<Node>> {
+      let mut prev = None;
+      while let Some(mut node) = head {
+          head = node.next.take();
+          node.next = prev;
+          prev = Some(node);
+      }
+      prev
+  }
+  ```
+  
+  ## Bash
+  
+  Bash does not have linked lists in any honest sense, but it does have arrays, and reversing one is a useful proxy. The idiom below uses parameter expansion to avoid spawning a subshell, which matters in a hot loop.
+  
+  ```bash
+  reverse_array() {
+    local -n src=$1
+    local -a out=()
+    local i
+    for (( i=${#src[@]}-1; i>=0; i-- )); do
+      out+=("${src[i]}")
+    done
+    src=("${out[@]}")
+  }
+  ```
+  
+  ## SQL
+  
+  SQL is the most jarring of the five because the question itself has to be reframed. There is no "linked list" — there is a table whose rows reference each other by id. Reversing the chain means inverting which column points to which, expressed as an update over a recursive common table expression.
+  
+  ```sql
+  WITH RECURSIVE chain AS (
+      SELECT id, next_id, 0 AS position
+      FROM nodes
+      WHERE id = (SELECT id FROM nodes WHERE prev_id IS NULL)
+      UNION ALL
+      SELECT n.id, n.next_id, c.position + 1
+      FROM nodes n
+      JOIN chain c ON n.id = c.next_id
+  )
+  UPDATE nodes
+  SET next_id = (
+      SELECT next.id
+      FROM chain cur
+      JOIN chain next ON next.position = cur.position - 1
+      WHERE cur.id = nodes.id
+  );
+  ```
+  
+  ## What the exercise reveals
+  
+  The Python and JavaScript versions look almost identical because both languages model the problem identically: mutable references, garbage collection, no ceremony. Rust is forced to be more explicit, and the result is more verbose but arguably clearer about what is actually happening to the memory. Bash and SQL aren't really doing the same thing at all — they reveal the gap between "the problem as stated" and "the closest equivalent the language supports." That gap is where most real engineering happens.
+  
+  '''
+# ---
+# name: test_docs
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: Configuration Reference
+  description: Complete reference for configuring pagetomd via environment variables, CLI flags, and config files.
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Configuration Reference
+  
+  Pagetomd reads configuration from three sources, applied in order: built-in defaults, environment variables prefixed with `PAGETOMD_`, and command-line flags. Later sources override earlier ones. This page documents every supported field, its type, its default value, and how to set it from each source.
+  
+  ## Network configuration
+  
+  Network options control how pagetomd talks to the origin server. They apply to the default `httpx` fetcher and, where meaningful, to the optional Playwright backend.
+  
+  ### timeout
+  
+  Maximum number of seconds to wait for any single HTTP request before giving up. Must be strictly positive. Applies to both the initial `GET` and to `robots.txt` lookups, although the latter is additionally capped at five seconds regardless of this value.
+  
+  #### Setting from the CLI
+  
+  Use the `--timeout` flag, e.g. `pagetomd --timeout 5 https://example.com`.
+  
+  #### Setting from the environment
+  
+  Export `PAGETOMD_TIMEOUT` in your shell:
+  
+  ```bash
+  export PAGETOMD_TIMEOUT=5
+  pagetomd https://example.com
+  ```
+  
+  ### retries
+  
+  Number of additional attempts made after the initial request fails with a retryable error. Must be non-negative. Retries are only attempted for transport errors and for the HTTP status codes 408, 425, 429, 500, 502, 503, and 504. Any other failure is terminal.
+  
+  ```python
+  from pagetomd.config import Config
+  
+  cfg = Config.from_overrides({
+      "url": "https://example.com",
+      "retries": 5,
+      "timeout": 10.0,
+  })
+  print(cfg.retries)  # 5
+  ```
+  
+  ## Conversion options
+  
+  Conversion options affect how the extracted HTML is turned into Markdown. They have no effect on the network layer.
+  
+  ### wide_tables
+  
+  Strategy for rendering tables wider than the GFM threshold. Accepts one of three string values: `kv`, `html`, or `drop`. The default is `kv`.
+  
+  | Value | Behaviour | When to use |
+  | --- | --- | --- |
+  | `kv` | Render each row as a key-value list. | LLM consumption. |
+  | `html` | Pass the original `<table>` through unchanged. | Human review of layout-sensitive data. |
+  | `drop` | Replace the table with a one-line placeholder. | You don't care about wide tables at all. |
+  
+  ### code_fences
+  
+  When true (the default), code blocks render as fenced blocks with language hints inferred from the source HTML. When false, code blocks render as indented blocks. We strongly recommend leaving this enabled — fenced blocks are friendlier to syntax highlighters.
+  
+  ```python
+  def example() -> None:
+      """Demonstrate a fenced code block with a language hint."""
+      print("hello world")
+  ```
+  
+  ## See also
+  
+  For the higher-level pipeline overview, see the [pipeline section](https://example.test#pipeline) below. For environment variable details, see [environment variables](https://example.test#env).
+  
+  ## Pipeline
+  
+  The pipeline orchestrates fetch, extract, convert, and write in that order. Each stage is independently configurable; see the module documentation for details.
+  
+  ## Environment variables
+  
+  Every `Config` field can be set from an environment variable prefixed with `PAGETOMD_`. Boolean fields accept `true`, `false`, `1`, `0`, `yes`, `no` (case-insensitive). Numeric fields are parsed as floats or integers as appropriate.
+  
+  '''
+# ---
+# name: test_github_readme
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: example-project
+  description: Example project README rendered as HTML for snapshot testing.
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # example-project
+  
+  A small, focused command-line utility that does one thing well: it converts a directory of YAML files into a single normalised JSON document, deduplicating keys and reporting conflicts. It is designed to be embedded in build pipelines where stability and predictable output matter more than fancy features.
+  
+  ## Table of contents
+  
+  ## Installation
+  
+  The recommended way to install `example-project` is from PyPI. It is a pure-Python package with no compiled dependencies and supports Python 3.11 and newer on Linux, macOS, and Windows.
+  
+  ```bash
+  pip install example-project
+  example-project --version
+  ```
+  
+  If you want the bleeding-edge development version, install directly from the main branch:
+  
+  ```bash
+  pip install git+https://github.com/example/example-project.git@main
+  ```
+  
+  ## Quick start
+  
+  Point the tool at a directory of YAML files. By default it writes the merged JSON to stdout, which makes it easy to compose with other Unix tools.
+  
+  ```bash
+  example-project ./configs > merged.json
+  jq '.database.host' merged.json
+  ```
+  
+  ## Features
+  
+  - Deterministic key ordering across runs — diffs are stable.
+  - Explicit conflict reporting when two files define the same key with different values.
+  - Schema validation against a JSON Schema document, if one is provided.
+  - Streaming mode for directories too large to fit in memory.
+  
+  ## Roadmap
+  
+  Planned work for the next minor release:
+  
+  - [x] Add TOML input support alongside YAML.
+  - [x] Publish prebuilt wheels for musl Linux.
+  - [ ] Add a `--watch`flag for development workflows.
+  - [ ] Native binary builds via PyOxidizer.
+  
+  ## Contributing
+  
+  Contributions are welcome. Please read [CONTRIBUTING.md](https://example.test/CONTRIBUTING.md) before opening a pull request. We try to respond to issues within a week and to pull requests within two weeks.
+  
+  The development setup is straightforward:
+  
+  ```bash
+  git clone https://github.com/example/example-project.git
+  cd example-project
+  pip install -e ".[dev]"
+  pytest
+  ```
+  
+  ## License
+  
+  Released under the MIT license. See [LICENSE](https://example.test/LICENSE) for full text.
+  
+  '''
+# ---
+# name: test_news
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: City Council Approves Long-Delayed Bridge Repair Budget
+  author: Sam Reporter
+  date: '2024-10-22'
+  description: After three years of debate, the city council voted unanimously to fund repairs to the Riverside Bridge.
+  site_name: Example Daily News
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # City Council Approves Long-Delayed Bridge Repair Budget
+  
+  After three years of contentious debate, the city council voted unanimously on Monday to approve a forty-two million dollar repair budget for the Riverside Bridge, ending a stalemate that had become a fixture of local politics. The vote, taken just before midnight, came after a four-hour public comment session in which dozens of residents — many of whom commute over the bridge daily — urged the council to act.
+  
+  The bridge, built in 1962 and last refurbished in 1998, has been restricted to passenger vehicles since a 2021 engineering survey found that two of its three main support beams had corroded beyond the threshold considered safe for trucks and buses. The restriction has rerouted commercial traffic through the downtown core, adding an estimated eight minutes to the average delivery route and contributing, business owners say, to a noticeable decline in foot traffic.
+  
+  Council member Maria Alvarez, who has championed the repair since her election in 2022, called the vote "a long-overdue victory for common sense." Speaking after the meeting, she emphasised that the funding package includes provisions for ongoing maintenance — something the original 1998 refurbishment notably lacked. "We are not going to find ourselves back here in 2050 asking the same question," she said.
+  
+  The cost will be split between the city's capital improvement fund (twenty-eight million dollars) and a state infrastructure grant (fourteen million dollars) that the council had been working to secure since spring. Construction is expected to begin in early 2025 and to last approximately eighteen months. During that period, the bridge will be closed entirely; the city has committed to running additional shuttle bus service across the alternate downtown route.
+  
+  Not every council member came to the vote enthusiastically. Council member David Chen, who had previously argued for a cheaper partial-repair option, said he ultimately supported the full package because "doing this twice would cost more than doing it right once." He cautioned, however, that the city would need to "watch the change orders like a hawk" once construction begins.
+  
+  The Riverside Bridge connects the east and west sides of the city across the Riverside River. Approximately twenty-two thousand vehicles cross it each day, according to the most recent traffic survey, making it the second-busiest river crossing in the metropolitan area.
+  
+  '''
+# ---
+# name: test_spa_vue_playwright_extracts
+  '''
+  ---
+  url: http://127.0.0.1:<PORT>/spa_vue.html
+  final_url: http://127.0.0.1:<PORT>/spa_vue.html
+  title: Understanding Reactive State in Modern Frameworks
+  author: Alex Frontend
+  description: A pragmatic look at how reactive state systems work and why their guarantees matter for application design.
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Understanding Reactive State in Modern Frameworks
+  
+  This article is rendered by JavaScript on the client. Reactive state systems — the foundational machinery of frameworks like Vue, Svelte, and SolidJS — are often described as magic. They are not. Underneath the friendly syntax lies a small, well-understood collection of primitives whose properties can be reasoned about precisely once you know what to look for.
+  
+  ## What "reactive" actually means
+  
+  A reactive value is one whose readers are automatically notified when its value changes. The phrase hides a great deal of subtlety, because each of the words can be interpreted in incompatible ways. Automatically can mean synchronously, asynchronously, or somewhere in between. Notified can mean re-evaluated, re-rendered, or merely flagged as dirty. And readers can mean components, computed values, or any function that called the value during its previous run. Different frameworks make different choices here, and the consequences propagate far beyond syntax.
+  
+  ## The pull model versus the push model
+  
+  In a pull model, reactive values do nothing on change beyond marking themselves as stale. Consumers — typically the render pass of a UI framework — pull the latest value when they next run. The system is simple, but it relies on the consumer to decide when to run. Most modern frameworks use a hybrid: writes mark dependents dirty (push), and a scheduler later batches all dirty consumers into a single re-evaluation pass (pull).
+  
+  This hybrid resolves the central tension in reactive design: you want updates to feel synchronous from the developer's perspective, while batching enough work that a hundred writes in the same tick produce a single render. The scheduler is the unsung hero of every modern reactive framework.
+  
+  ## Where the abstractions leak
+  
+  Reactive primitives leak in three predictable places. First, around asynchronous code — once you `await` inside a reactive context, the dependency-tracking machinery loses track of what you read on the other side of the await. Second, around object identity — replacing an object versus mutating it has subtly different downstream effects in proxy-based systems like Vue 3. Third, around computed values whose dependencies change between runs — a careless conditional read can leave a stale dependency in the tracking graph forever.
+  
+  ## Practical advice
+  
+  Three rules of thumb cover most cases. Keep reactive reads at the top of your effect bodies, before any conditional logic. Prefer immutable updates over in-place mutation unless you have measured that mutation matters for performance. And treat your framework's escape hatches — `untracked`, `peek`, `$state.raw`, whatever yours calls them — as load-bearing API, not as exotic edge cases. The day you need them, you will need them badly.
+  
+  '''
+# ---
+# name: test_tables[drop]
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: Sample Tables for Wide-Table Rendering Tests
+  date: '2024-01-15'
+  description: Three tables of different widths used to exercise pagetomd's wide-tables strategies.
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Sample Tables for Wide-Table Rendering Tests
+  
+  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three `wide_tables` rendering strategies — `kv`, `html`, and `drop` — against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
+  
+  ## Narrow table (three columns)
+  
+  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every `wide_tables` setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
+  
+  | Fruit | Colour | Calories |
+  | --- | --- | --- |
+  | Apple | Red | 95 |
+  | Banana | Yellow | 105 |
+  | Cherry | Red | 50 |
+  
+  ## Boundary table (exactly five columns)
+  
+  The second table has exactly five columns, which is the precise boundary case for the wide-table threshold. Pagetomd's threshold is set so that five columns is still considered narrow and renders as a normal GFM table; the next column over the line — six — is what triggers the wide-table fallback. This boundary test guards against off-by-one regressions in the column counting logic.
+  
+  | SKU | Product | Price | Stock | Warehouse |
+  | --- | --- | --- | --- | --- |
+  | A001 | Widget | $9.99 | 120 | East |
+  | A002 | Gadget | $14.50 | 45 | West |
+  | A003 | Sprocket | $3.25 | 800 | East |
+  
+  ## Wide table (eight columns)
+  
+  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under `kv` the table should be rendered as a sequence of key-value lists, one per row. Under `html` the original markup should be preserved verbatim. Under `drop` the table should be replaced by a short placeholder noting that a wide table was omitted.
+  
+  <!-- pagetomd: wide table dropped (cols=8) -->
+  
+  The closing paragraph is here primarily so that the article body extends past the final table, which helps trafilatura recognise the table as part of the article rather than as trailing boilerplate. In practice this kind of padding is almost always present in real-world pages, but in synthetic fixtures it has to be added explicitly.
+  
+  '''
+# ---
+# name: test_tables[html]
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: Sample Tables for Wide-Table Rendering Tests
+  date: '2024-01-15'
+  description: Three tables of different widths used to exercise pagetomd's wide-tables strategies.
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Sample Tables for Wide-Table Rendering Tests
+  
+  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three `wide_tables` rendering strategies — `kv`, `html`, and `drop` — against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
+  
+  ## Narrow table (three columns)
+  
+  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every `wide_tables` setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
+  
+  | Fruit | Colour | Calories |
+  | --- | --- | --- |
+  | Apple | Red | 95 |
+  | Banana | Yellow | 105 |
+  | Cherry | Red | 50 |
+  
+  ## Boundary table (exactly five columns)
+  
+  The second table has exactly five columns, which is the precise boundary case for the wide-table threshold. Pagetomd's threshold is set so that five columns is still considered narrow and renders as a normal GFM table; the next column over the line — six — is what triggers the wide-table fallback. This boundary test guards against off-by-one regressions in the column counting logic.
+  
+  | SKU | Product | Price | Stock | Warehouse |
+  | --- | --- | --- | --- | --- |
+  | A001 | Widget | $9.99 | 120 | East |
+  | A002 | Gadget | $14.50 | 45 | West |
+  | A003 | Sprocket | $3.25 | 800 | East |
+  
+  ## Wide table (eight columns)
+  
+  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under `kv` the table should be rendered as a sequence of key-value lists, one per row. Under `html` the original markup should be preserved verbatim. Under `drop` the table should be replaced by a short placeholder noting that a wide table was omitted.
+  
+  <table>
+  <tr>
+  <th>Date</th>
+  <th>Region</th>
+  <th>Product</th>
+  <th>Units</th>
+  <th>Revenue</th>
+  <th>Cost</th>
+  <th>Margin</th>
+  <th>Notes</th>
+  </tr>
+  <tr>
+  <td>2024-01-15</td>
+  <td>NA</td>
+  <td>Widget</td>
+  <td>1200</td>
+  <td>$11988</td>
+  <td>$7200</td>
+  <td>$4788</td>
+  <td>Launch</td>
+  </tr>
+  <tr>
+  <td>2024-02-15</td>
+  <td>EU</td>
+  <td>Gadget</td>
+  <td>850</td>
+  <td>$12325</td>
+  <td>$5950</td>
+  <td>$6375</td>
+  <td>Steady</td>
+  </tr>
+  <tr>
+  <td>2024-03-15</td>
+  <td>APAC</td>
+  <td>Sprocket</td>
+  <td>3400</td>
+  <td>$11050</td>
+  <td>$6800</td>
+  <td>$4250</td>
+  <td>Promo</td>
+  </tr>
+  </table>
+  
+  The closing paragraph is here primarily so that the article body extends past the final table, which helps trafilatura recognise the table as part of the article rather than as trailing boilerplate. In practice this kind of padding is almost always present in real-world pages, but in synthetic fixtures it has to be added explicitly.
+  
+  '''
+# ---
+# name: test_tables[kv]
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: Sample Tables for Wide-Table Rendering Tests
+  date: '2024-01-15'
+  description: Three tables of different widths used to exercise pagetomd's wide-tables strategies.
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Sample Tables for Wide-Table Rendering Tests
+  
+  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three `wide_tables` rendering strategies — `kv`, `html`, and `drop` — against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
+  
+  ## Narrow table (three columns)
+  
+  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every `wide_tables` setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
+  
+  | Fruit | Colour | Calories |
+  | --- | --- | --- |
+  | Apple | Red | 95 |
+  | Banana | Yellow | 105 |
+  | Cherry | Red | 50 |
+  
+  ## Boundary table (exactly five columns)
+  
+  The second table has exactly five columns, which is the precise boundary case for the wide-table threshold. Pagetomd's threshold is set so that five columns is still considered narrow and renders as a normal GFM table; the next column over the line — six — is what triggers the wide-table fallback. This boundary test guards against off-by-one regressions in the column counting logic.
+  
+  | SKU | Product | Price | Stock | Warehouse |
+  | --- | --- | --- | --- | --- |
+  | A001 | Widget | $9.99 | 120 | East |
+  | A002 | Gadget | $14.50 | 45 | West |
+  | A003 | Sprocket | $3.25 | 800 | East |
+  
+  ## Wide table (eight columns)
+  
+  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under `kv` the table should be rendered as a sequence of key-value lists, one per row. Under `html` the original markup should be preserved verbatim. Under `drop` the table should be replaced by a short placeholder noting that a wide table was omitted.
+  
+  ### Row 1
+  
+  - **Date**: 2024-01-15
+  - **Region**: NA
+  - **Product**: Widget
+  - **Units**: 1200
+  - **Revenue**: $11988
+  - **Cost**: $7200
+  - **Margin**: $4788
+  - **Notes**: Launch
+  
+  ### Row 2
+  
+  - **Date**: 2024-02-15
+  - **Region**: EU
+  - **Product**: Gadget
+  - **Units**: 850
+  - **Revenue**: $12325
+  - **Cost**: $5950
+  - **Margin**: $6375
+  - **Notes**: Steady
+  
+  ### Row 3
+  
+  - **Date**: 2024-03-15
+  - **Region**: APAC
+  - **Product**: Sprocket
+  - **Units**: 3400
+  - **Revenue**: $11050
+  - **Cost**: $6800
+  - **Margin**: $4250
+  - **Notes**: Promo
+  
+  The closing paragraph is here primarily so that the article body extends past the final table, which helps trafilatura recognise the table as part of the article rather than as trailing boilerplate. In practice this kind of padding is almost always present in real-world pages, but in synthetic fixtures it has to be added explicitly.
+  
+  '''
+# ---

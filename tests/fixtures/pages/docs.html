@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Configuration Reference — Pagetomd Docs</title>
+    <meta name="description" content="Complete reference for configuring pagetomd via environment variables, CLI flags, and config files.">
+</head>
+<body>
+    <main>
+        <article>
+            <h1>Configuration Reference</h1>
+            <p>Pagetomd reads configuration from three sources, applied in order: built-in defaults, environment variables prefixed with <code>PAGETOMD_</code>, and command-line flags. Later sources override earlier ones. This page documents every supported field, its type, its default value, and how to set it from each source.</p>
+
+            <h2>Network configuration</h2>
+            <p>Network options control how pagetomd talks to the origin server. They apply to the default <code>httpx</code> fetcher and, where meaningful, to the optional Playwright backend.</p>
+
+            <h3>timeout</h3>
+            <p>Maximum number of seconds to wait for any single HTTP request before giving up. Must be strictly positive. Applies to both the initial <code>GET</code> and to <code>robots.txt</code> lookups, although the latter is additionally capped at five seconds regardless of this value.</p>
+
+            <h4>Setting from the CLI</h4>
+            <p>Use the <code>--timeout</code> flag, e.g. <code>pagetomd --timeout 5 https://example.com</code>.</p>
+
+            <h4>Setting from the environment</h4>
+            <p>Export <code>PAGETOMD_TIMEOUT</code> in your shell:</p>
+            <pre><code class="language-bash">export PAGETOMD_TIMEOUT=5
+pagetomd https://example.com</code></pre>
+
+            <h3>retries</h3>
+            <p>Number of additional attempts made after the initial request fails with a retryable error. Must be non-negative. Retries are only attempted for transport errors and for the HTTP status codes 408, 425, 429, 500, 502, 503, and 504. Any other failure is terminal.</p>
+
+            <pre><code class="language-python">from pagetomd.config import Config
+
+cfg = Config.from_overrides({
+    "url": "https://example.com",
+    "retries": 5,
+    "timeout": 10.0,
+})
+print(cfg.retries)  # 5</code></pre>
+
+            <h2>Conversion options</h2>
+            <p>Conversion options affect how the extracted HTML is turned into Markdown. They have no effect on the network layer.</p>
+
+            <h3>wide_tables</h3>
+            <p>Strategy for rendering tables wider than the GFM threshold. Accepts one of three string values: <code>kv</code>, <code>html</code>, or <code>drop</code>. The default is <code>kv</code>.</p>
+
+            <table>
+                <thead>
+                    <tr><th>Value</th><th>Behaviour</th><th>When to use</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>kv</code></td><td>Render each row as a key-value list.</td><td>LLM consumption.</td></tr>
+                    <tr><td><code>html</code></td><td>Pass the original <code>&lt;table&gt;</code> through unchanged.</td><td>Human review of layout-sensitive data.</td></tr>
+                    <tr><td><code>drop</code></td><td>Replace the table with a one-line placeholder.</td><td>You don't care about wide tables at all.</td></tr>
+                </tbody>
+            </table>
+
+            <h3>code_fences</h3>
+            <p>When true (the default), code blocks render as fenced blocks with language hints inferred from the source HTML. When false, code blocks render as indented blocks. We strongly recommend leaving this enabled — fenced blocks are friendlier to syntax highlighters.</p>
+
+            <pre><code class="language-python">def example() -&gt; None:
+    """Demonstrate a fenced code block with a language hint."""
+    print("hello world")</code></pre>
+
+            <h2>See also</h2>
+            <p>For the higher-level pipeline overview, see the <a href="#pipeline">pipeline section</a> below. For environment variable details, see <a href="#env">environment variables</a>.</p>
+
+            <h2 id="pipeline">Pipeline</h2>
+            <p>The pipeline orchestrates fetch, extract, convert, and write in that order. Each stage is independently configurable; see the module documentation for details.</p>
+
+            <h2 id="env">Environment variables</h2>
+            <p>Every <code>Config</code> field can be set from an environment variable prefixed with <code>PAGETOMD_</code>. Boolean fields accept <code>true</code>, <code>false</code>, <code>1</code>, <code>0</code>, <code>yes</code>, <code>no</code> (case-insensitive). Numeric fields are parsed as floats or integers as appropriate.</p>
+        </article>
+    </main>
+</body>
+</html>

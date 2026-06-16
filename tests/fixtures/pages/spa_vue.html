@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Understanding Reactive State in Modern Frameworks</title>
+    <meta name="description" content="A pragmatic look at how reactive state systems work and why their guarantees matter for application design.">
+    <meta name="author" content="Alex Frontend">
+</head>
+<body>
+    <div id="app"></div>
+
+    <noscript>
+        JavaScript is required to view this page. The full article is rendered client-side once the bundle loads.
+    </noscript>
+
+    <script>
+        // Minimal hydration stand-in: replace the empty SPA mount point
+        // with the real article body so a real browser sees content.
+        (function () {
+            var mount = document.getElementById('app');
+            if (!mount) { return; }
+            mount.innerHTML = [
+                '<article>',
+                '<h1>Understanding Reactive State in Modern Frameworks</h1>',
+                '<p>This article is rendered by JavaScript on the client. Reactive state systems — the foundational machinery of frameworks like Vue, Svelte, and SolidJS — are often described as magic. They are not. Underneath the friendly syntax lies a small, well-understood collection of primitives whose properties can be reasoned about precisely once you know what to look for.</p>',
+                '<h2>What "reactive" actually means</h2>',
+                '<p>A reactive value is one whose readers are automatically notified when its value changes. The phrase hides a great deal of subtlety, because each of the words can be interpreted in incompatible ways. <em>Automatically</em> can mean synchronously, asynchronously, or somewhere in between. <em>Notified</em> can mean re-evaluated, re-rendered, or merely flagged as dirty. And <em>readers</em> can mean components, computed values, or any function that called the value during its previous run. Different frameworks make different choices here, and the consequences propagate far beyond syntax.</p>',
+                '<h2>The pull model versus the push model</h2>',
+                '<p>In a pull model, reactive values do nothing on change beyond marking themselves as stale. Consumers — typically the render pass of a UI framework — pull the latest value when they next run. The system is simple, but it relies on the consumer to decide when to run. Most modern frameworks use a hybrid: writes mark dependents dirty (push), and a scheduler later batches all dirty consumers into a single re-evaluation pass (pull).</p>',
+                '<p>This hybrid resolves the central tension in reactive design: you want updates to feel synchronous from the developer\'s perspective, while batching enough work that a hundred writes in the same tick produce a single render. The scheduler is the unsung hero of every modern reactive framework.</p>',
+                '<h2>Where the abstractions leak</h2>',
+                '<p>Reactive primitives leak in three predictable places. First, around asynchronous code — once you <code>await</code> inside a reactive context, the dependency-tracking machinery loses track of what you read on the other side of the await. Second, around object identity — replacing an object versus mutating it has subtly different downstream effects in proxy-based systems like Vue 3. Third, around computed values whose dependencies change between runs — a careless conditional read can leave a stale dependency in the tracking graph forever.</p>',
+                '<h2>Practical advice</h2>',
+                '<p>Three rules of thumb cover most cases. Keep reactive reads at the top of your effect bodies, before any conditional logic. Prefer immutable updates over in-place mutation unless you have measured that mutation matters for performance. And treat your framework\'s escape hatches — <code>untracked</code>, <code>peek</code>, <code>$state.raw</code>, whatever yours calls them — as load-bearing API, not as exotic edge cases. The day you need them, you will need them badly.</p>',
+                '</article>'
+            ].join('');
+        })();
+    </script>
+</body>
+</html>

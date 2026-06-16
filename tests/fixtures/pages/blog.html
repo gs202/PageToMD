@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Why We Rewrote Our Build System in Rust</title>
+    <meta name="description" content="A retrospective on migrating our monorepo build pipeline from Python to Rust, and what we learned along the way.">
+    <meta name="author" content="Jane Doe">
+    <meta property="og:site_name" content="Example Engineering Blog">
+    <meta property="article:published_time" content="2024-08-14">
+</head>
+<body>
+    <header class="site-header">
+        <nav>
+            <a href="/">Home</a>
+            <a href="/blog">Blog</a>
+            <a href="/about">About</a>
+        </nav>
+    </header>
+
+    <article>
+        <h1>Why We Rewrote Our Build System in Rust</h1>
+        <p class="byline">By <a href="/authors/jane-doe">Jane Doe</a> — August 14, 2024</p>
+
+        <p>Three years ago, our monorepo build pipeline was a sprawling Python application held together with shell scripts and prayer. It worked, mostly, but every incremental change took longer than the last, and onboarding new engineers meant walking them through a maze of implicit assumptions baked into a decade of accumulated tooling. This is the story of how we rewrote it in Rust, what we got right, what we got wrong, and what we would do differently if we had to start over.</p>
+
+        <p>The motivation was simple: developer feedback loops were dying. A clean build on a developer laptop took fourteen minutes. CI runs averaged thirty-eight. Engineers were context-switching to Slack, to email, to side projects — anywhere but the build that was supposed to finish in under a minute on a respectable machine.</p>
+
+        <aside class="newsletter-signup">Subscribe to our newsletter for weekly engineering posts.</aside>
+
+        <h2>What we measured before changing anything</h2>
+        <p>Before writing a single line of replacement code, we instrumented the existing pipeline. The headline finding was that we spent more time waiting on the Python interpreter to import packages than we did actually doing work. A representative build spent forty-one percent of its wall-clock time inside <code>importlib</code>, twenty-three percent inside subprocess overhead spawning helper binaries, and only the remaining thirty-six percent doing genuinely useful work like compilation and linking.</p>
+
+        <p>That ratio was the smoking gun. No amount of incremental tuning was going to recover those two-thirds of wasted time without a fundamentally different architecture. We needed a single long-lived process that could hold the dependency graph in memory, fan out work to a pool of threads, and avoid the per-task interpreter startup penalty entirely.</p>
+
+        <h2>Why Rust and not Go or C++</h2>
+        <p>We evaluated three candidate languages: Rust, Go, and C++. Each could plausibly deliver the performance we needed; the choice came down to ergonomics, hiring, and long-term maintenance. Rust won for three reasons. The borrow checker eliminated an entire class of concurrency bugs that the build system would otherwise be uniquely prone to. The cargo ecosystem gave us a credible story for shipping cross-platform binaries without bespoke packaging scripts. And the team had three Rust enthusiasts already willing to lead the effort.</p>
+
+        <h2>The migration itself</h2>
+        <p>We ran both build systems side by side for nine months. New build rules landed in Rust; existing rules were ported on a rolling basis, prioritised by how often they were rebuilt. Every nightly run produced a diff report comparing the two systems' outputs file-by-file, byte-by-byte. Any mismatch blocked the migration of that rule until we understood it.</p>
+
+        <p>This dual-running phase was the single most important decision we made. It caught seventeen subtle correctness regressions before they reached anyone's laptop, including one case where a path normalisation difference would have silently invalidated three months of incremental build caches.</p>
+
+        <h2>What we wish we'd done sooner</h2>
+        <p>Two lessons stand out. First: we should have started by writing the new system's <em>command-line interface</em> and treated it as a strict contract from day one. We didn't, and the result was three painful weeks of CLI thrashing in the final stretch as users gave us feedback on flag names and exit codes. Second: we should have invested in a query language for the build graph earlier. Once we had it, debugging mysterious incremental-build failures went from a half-day archaeological dig to a five-minute one-liner.</p>
+
+        <p>If you're considering a similar rewrite, our advice is unromantic but clear: measure first, run in parallel for longer than you think you need to, and treat your CLI as a public API the moment you have a second user.</p>
+    </article>
+
+    <section class="comments" id="comments">Comments section placeholder text that should never appear in the rendered Markdown output.</section>
+
+    <div class="share-buttons">Share button placeholder text that should never appear in the rendered Markdown output.</div>
+
+    <footer>
+        <p>© 2024 Example Engineering Blog</p>
+    </footer>
+</body>
+</html>
