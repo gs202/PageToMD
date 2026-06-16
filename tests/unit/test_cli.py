@@ -28,7 +28,10 @@ from pagetomd.exceptions import (
 )
 from pagetomd.pipeline import PipelineResult
 
+# Matches ANSI escape codes and Rich box-drawing / decoration characters
+# that can split flag names across visual columns on narrow terminals.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_BOX_CHARS = re.compile(r"[│─╭╮╰╯┌┐└┘├┤┬┴┼╔╗╚╝║═]")
 
 
 @pytest.fixture()
@@ -98,9 +101,11 @@ def test_help_mentions_locked_flags(runner: CliRunner) -> None:
     """Every documented flag appears somewhere in the help text."""
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    # Strip ANSI escape codes so Rich/Typer formatting doesn't break
-    # plain-text flag searches.
-    plain = _ANSI_RE.sub("", result.stdout).replace("\n", " ")
+    # Strip ANSI escape codes and Rich box-drawing decoration so
+    # flag names split across visual columns are still found.
+    stripped = _ANSI_RE.sub("", result.stdout)
+    stripped = _BOX_CHARS.sub(" ", stripped)
+    plain = " ".join(stripped.split())
     for flag in (
         "--output",
         "--overwrite",

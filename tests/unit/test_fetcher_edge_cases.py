@@ -367,7 +367,7 @@ def test_fetch_error_url_context_redacts_userinfo() -> None:
     )
 
     with pytest.raises(FetchError) as excinfo:
-        HttpxFetcher(cfg).fetch("https://alice:secret@example.com/x")
+        HttpxFetcher(cfg).fetch("https://alice:secret@example.com/x")  # pragma: allowlist secret
 
     captured_url = excinfo.value.context["url"]
     assert isinstance(captured_url, str)
@@ -392,7 +392,7 @@ def test_successful_fetch_does_not_log_userinfo() -> None:
     )
 
     with capture_logs() as cap:
-        HttpxFetcher(cfg).fetch("https://alice:secret@example.com/x")
+        HttpxFetcher(cfg).fetch("https://alice:secret@example.com/x")  # pragma: allowlist secret
 
     for entry in cap:
         for value in entry.values():
