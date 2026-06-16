@@ -59,7 +59,7 @@ dev = [
     "syrupy>=4.6",
     "hypothesis>=6.100",
     "ruff>=0.6",
-    "mypy>=1.11",
+    "mypy>=1.11,<2",
     "pre-commit>=3.7",
     "respx>=0.21",
 ]

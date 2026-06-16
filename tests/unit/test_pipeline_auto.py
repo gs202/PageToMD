@@ -138,7 +138,12 @@ def test_auto_skips_playwright_when_body_rich(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Rich httpx response short-circuits — playwright is never built."""
-    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
+    config = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="auto",
+    )
     fake_httpx = _FakeHttpx(doc=make_fetched_doc(_rich_html()))
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
     monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
@@ -154,7 +159,12 @@ def test_auto_skips_playwright_when_body_rich(
 
 def test_auto_falls_back_on_spa_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """SPA-shaped httpx response triggers the playwright retry."""
-    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
+    config = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="auto",
+    )
     shell = _shell_html('<div id="app"></div>')
     fake_httpx = _FakeHttpx(doc=make_fetched_doc(shell))
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
@@ -182,7 +192,12 @@ def test_auto_propagates_httpx_fetch_error_without_trying_playwright(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Httpx-side errors bubble up untouched — no browser is launched."""
-    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
+    config = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="auto",
+    )
     boom = FetchError("network down", url=config.url)
     fake_httpx = _FakeHttpx(exc=boom)
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
@@ -197,7 +212,12 @@ def test_auto_propagates_httpx_fetch_error_without_trying_playwright(
 
 def test_auto_close_lifecycle_on_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Both backends are closed on ``__exit__`` even when the body raised."""
-    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
+    config = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="auto",
+    )
     shell = _shell_html('<div id="app"></div>')
     fake_httpx = _FakeHttpx(doc=make_fetched_doc(shell))
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
@@ -217,7 +237,12 @@ def test_auto_close_lifecycle_on_exception(tmp_path: Path, monkeypatch: pytest.M
 
 def test_auto_close_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Calling close() twice is safe and does not double-close backends."""
-    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
+    config = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="auto",
+    )
     fake_httpx = _FakeHttpx(doc=make_fetched_doc(_rich_html()))
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
     monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
@@ -235,14 +260,24 @@ def test_select_fetcher_httpx(tmp_path: Path) -> None:
     """``fetcher='httpx'`` selects :class:`HttpxFetcher`."""
     from pagetomd.fetcher import HttpxFetcher
 
-    cfg = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="httpx")
+    cfg = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="httpx",
+    )
     selected = pipeline._select_fetcher(cfg)
     assert isinstance(selected, HttpxFetcher)
 
 
 def test_select_fetcher_auto(tmp_path: Path) -> None:
     """``fetcher='auto'`` selects :class:`_AutoFetcher`."""
-    cfg = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
+    cfg = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="auto",
+    )
     selected = pipeline._select_fetcher(cfg)
     assert isinstance(selected, pipeline._AutoFetcher)
 
