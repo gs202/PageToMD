@@ -174,9 +174,7 @@ jobs:
         # needs to run headless under Ubuntu's minimal container image.
         run: uv run playwright install chromium --with-deps
       - name: Run Playwright-marked tests
-        # ``-o asyncio_mode=strict`` avoids the session event loop that
-        # trips Playwright's sync-API guard.
-        run: uv run pytest -m playwright -v -o asyncio_mode=strict --cov --cov-report=
+        run: uv run pytest -m playwright -v --cov --cov-report=
       - name: Upload coverage data
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
         with:

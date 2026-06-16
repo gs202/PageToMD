@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # SSRF guard bypass — tests hit loopback, so disable the private-address
 # check. NEVER set this in production. Must precede pagetomd imports.
+import asyncio
 import os
 
 os.environ.setdefault("PAGETOMD_INTERNAL_SKIP_SSRF", "1")
@@ -95,6 +96,37 @@ def local_http_server() -> Iterator[str]:
         thread.join(timeout=2)
 
 
+@pytest.fixture(autouse=True)
+def _detach_event_loop_for_playwright(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Temporarily detach any running event loop for Playwright-marked tests.
+
+    ``pytest-asyncio`` and ``anyio`` install a running event loop at session
+    scope. Playwright's Sync API refuses to start when it detects one.
+    This fixture unsets the running loop before each ``@pytest.mark.playwright``
+    test and restores it afterwards.
+    """
+    marker = request.node.get_closest_marker("playwright")
+    if marker is None:
+        yield
+        return
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and loop.is_running():
+        # Can't actually stop the loop, but we can hide it from the
+        # current thread so Playwright's ``get_running_loop()`` raises.
+        asyncio._set_running_loop(None)  # type: ignore[attr-defined]
+        try:
+            yield
+        finally:
+            asyncio._set_running_loop(loop)  # type: ignore[attr-defined]
+    else:
+        yield
+
+
 @pytest.fixture(scope="session")
 def chromium_available() -> bool:
     """Return ``True`` when ``playwright`` + chromium can launch headless."""
@@ -102,13 +134,29 @@ def chromium_available() -> bool:
         from playwright.sync_api import sync_playwright
     except ImportError:
         return False
+
+    # Hide any running event loop so Playwright sync API can start.
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None:
+        asyncio._set_running_loop(None)  # type: ignore[attr-defined]
+
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                chromium_sandbox=not bool(os.environ.get("CI")),
+            )
             browser.close()
         return True
     except Exception:
         return False
+    finally:
+        if loop is not None:
+            asyncio._set_running_loop(loop)  # type: ignore[attr-defined]
 
 
 _CRITICAL_MODULE_COVERAGE_THRESHOLDS: Mapping[str, float] = {
