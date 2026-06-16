@@ -575,7 +575,7 @@ def _guard_redirect_response(response: httpx.Response) -> None:
 
 _PLAYWRIGHT_DEP_MESSAGE = (
     "Playwright is not installed. Install with: "
-    "pipx install 'pagetomd[playwright]' && playwright install chromium"
+    "uv tool install 'pagetomd[playwright]' && playwright install chromium"
 )
 
 # Launch hardening: cap V8 heap, avoid /dev/shm issues, disable timer throttling, skip zygote.

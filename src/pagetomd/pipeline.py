@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 from pagetomd.config import Config
 from pagetomd.converter import convert
 from pagetomd.exceptions import (
+    ExtractionEmptyError,
     PageToMdError,
 )
 from pagetomd.extractor import extract
@@ -136,7 +137,19 @@ def _run_with_fetcher(
 ) -> PipelineResult:
     """Drive the stage sequence against an already-prepared fetcher."""
     fetched = fetcher.fetch(config.url)
-    extracted = extract(fetched, config)
+    try:
+        extracted = extract(fetched, config)
+    except ExtractionEmptyError:
+        if not isinstance(fetcher, _AutoFetcher):
+            raise
+        # The SPA-marker heuristic missed this page — retry with Playwright.
+        log.info(
+            "fetch.auto.extraction_fallback",
+            url=redact_url(config.url),
+            reason="extraction_empty_after_httpx",
+        )
+        fetched = fetcher.fetch_playwright(config.url)
+        extracted = extract(fetched, config)
     raw_md = convert(extracted.cleaned_html, config)
     effective_base = _resolve_base_url(base_href=extracted.base_href, final_url=fetched.final_url)
     body_md = postprocess(
@@ -307,6 +320,10 @@ class _AutoFetcher:
             reason="spa_shell_detected",
             body_chars=_body_char_count(doc.html),
         )
+        return self.fetch_playwright(url)
+
+    def fetch_playwright(self, url: str) -> FetchedDoc:
+        """Fetch via playwright, lazily initialising the backend."""
         if self._playwright is None:
             self._playwright = PlaywrightFetcher(self._config)
         return self._playwright.fetch(url)
