@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Convert any webpage URL into clean, LLM-ready Markdown with frontmatter."
 readme = "README.md"
 requires-python = ">=3.13"
-license = { file = "LICENSE" }
+license = { text = "BUSL-1.1" }
 authors = [
   { name = "Gabriel Shekler", email = "gs202@users.noreply.github.com" }
 ]
@@ -28,7 +28,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
@@ -115,15 +115,25 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 asyncio_mode = "auto"
 markers = [
+    "unit: fast, isolated unit tests with mocked dependencies (tests/unit/).",
     "integration: end-to-end tests that spawn the real CLI as a subprocess against the local-loopback HTTP server (collected by default).",
     "playwright: tests that require the optional 'playwright' extra plus the chromium browser binary. Skipped automatically when those are unavailable.",
     "property: hypothesis-driven property-based tests covering invariants such as postprocess idempotence, NFC stability, and fenced-code-block preservation.",
+    "snapshot: syrupy-based pipeline round-trip snapshot tests (tests/snapshot/).",
     "packaging: release-prep tests that build the sdist+wheel, install into a throwaway venv, and verify the entry point. Collected by default but slower (~15-30s).",
 ]
 
 [tool.coverage.run]
 branch = true
 source = ["src/pagetomd"]
+# Store relative paths so coverage data from parallel CI jobs can be
+# combined without path-mapping quirks.
+relative_files = true
+
+[tool.coverage.paths]
+source = [
+    "src/pagetomd",
+]
 
 [tool.coverage.report]
 show_missing = true
