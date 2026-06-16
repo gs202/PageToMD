@@ -22,7 +22,12 @@ def test_dependency_missing_when_playwright_not_importable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Construction raises :class:`DependencyMissingError` when import fails."""
-    cfg = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", playwright_idle_ms=0)
+    cfg = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        playwright_idle_ms=0,
+    )
     monkeypatch.setitem(sys.modules, "playwright", None)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
 
@@ -44,7 +49,12 @@ def test_playwright_smoke_renders_local_fixture(
     if not chromium_available:
         pytest.skip("chromium not available; run `playwright install chromium`")
 
-    cfg = make_config(url=f"{local_http_server}/spa_vue.html", output=tmp_path / "out.md", log_level="warning", playwright_idle_ms=0)
+    cfg = make_config(
+        url=f"{local_http_server}/spa_vue.html",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        playwright_idle_ms=0,
+    )
     with fetcher_module.PlaywrightFetcher(cfg) as f:
         doc = f.fetch(cfg.url)
 

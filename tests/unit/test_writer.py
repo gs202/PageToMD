@@ -105,7 +105,10 @@ def test_build_frontmatter_no_fetched_at() -> None:
 
 def test_build_frontmatter_populates_tool_version() -> None:
     """``tool_version`` matches :data:`pagetomd.__version__`."""
-    fm = build_frontmatter(make_fetched_doc(url="https://example.com/blog/why-fastapi"), _make_extracted())
+    fm = build_frontmatter(
+        make_fetched_doc(url="https://example.com/blog/why-fastapi"),
+        _make_extracted(),
+    )
     assert fm.tool == "pagetomd"
     assert fm.tool_version == pagetomd.__version__
 
@@ -524,7 +527,13 @@ def test_symlink_target_refused_follow_symlinks_false(
     link.symlink_to(real)
 
     with pytest.raises(WriteError) as exc_info:
-        write_output("new body\n", _frontmatter(), output=link, overwrite=overwrite, follow_symlinks=False)
+        write_output(
+            "new body\n",
+            _frontmatter(),
+            output=link,
+            overwrite=overwrite,
+            follow_symlinks=False,
+        )
 
     assert exc_info.value.context["path"] == str(link)
     if expected_msg_fragment:

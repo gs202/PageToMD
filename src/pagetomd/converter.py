@@ -443,7 +443,8 @@ def _tei_table_to_html(table: Tag) -> str:
 
 
 def _scrub_passthrough_html(tag: Tag) -> None:
-    """Remove inline JS hazards (``on*`` handlers, ``javascript:`` URLs) from ``tag`` and descendants.
+    """Remove inline JS hazards (``on*`` handlers, ``javascript:`` URLs)
+    from ``tag`` and descendants.
 
     Prevents XSS when wide-table HTML is passed through verbatim into Markdown.
     """

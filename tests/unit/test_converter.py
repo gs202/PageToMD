@@ -407,15 +407,18 @@ def _wide_html_table(row_cells_html: str) -> str:
             ["onclick", "alert(1)"],
         ),
         (
-            '<td OnError="x">a</td><td OnMouseOver="y">b</td><td>c</td><td>d</td><td>e</td><td>f</td>',
+            '<td OnError="x">a</td><td OnMouseOver="y">b</td>'
+            '<td>c</td><td>d</td><td>e</td><td>f</td>',
             ["onerror", "onmouseover", '"x"', '"y"'],
         ),
         (
-            '<td><a href="javascript:alert(1)">click</a></td><td>b</td><td>c</td><td>d</td><td>e</td><td>f</td>',
+            '<td><a href="javascript:alert(1)">click</a></td>'
+            '<td>b</td><td>c</td><td>d</td><td>e</td><td>f</td>',
             ["javascript:", "alert(1)"],
         ),
         (
-            '<td><a href="JAVASCRIPT:alert(1)">click</a></td><td>b</td><td>c</td><td>d</td><td>e</td><td>f</td>',
+            '<td><a href="JAVASCRIPT:alert(1)">click</a></td>'
+            '<td>b</td><td>c</td><td>d</td><td>e</td><td>f</td>',
             ["javascript:", "alert(1)"],
         ),
     ],

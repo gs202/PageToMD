@@ -7,6 +7,7 @@ import logging
 
 import pytest
 import structlog
+from structlog.testing import capture_logs
 
 from pagetomd.logging import configure_logging, get_logger
 
@@ -60,7 +61,6 @@ def test_filtering_suppresses_debug_when_level_is_warning(
     assert "visible" in captured.err
 
 
-from structlog.testing import capture_logs
 
 def test_get_logger_returns_bound_logger() -> None:
     """get_logger returns a structlog BoundLogger that carries bound context."""

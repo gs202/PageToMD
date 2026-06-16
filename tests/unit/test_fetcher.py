@@ -387,8 +387,6 @@ def test_ssl_cert_error_not_retried(cfg: Config, monkeypatch: pytest.MonkeyPatch
 
     call_count = 0
 
-    original_get = httpx.Client.get
-
     def _patched_get(self: httpx.Client, *args: object, **kwargs: object) -> httpx.Response:
         nonlocal call_count
         call_count += 1
@@ -438,7 +436,8 @@ def _respx_clean() -> Iterator[None]:
 
 
 def test_ssrf_safe_transport_rewrites_url_and_sets_headers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SSRFSafeTransport rewrites the request URL to the validated IP, sets Host and sni_hostname."""
+    """SSRFSafeTransport rewrites the request URL to the validated IP,
+    sets Host and sni_hostname."""
     from pagetomd.fetcher import SSRFSafeTransport
     import pagetomd.fetcher
 
