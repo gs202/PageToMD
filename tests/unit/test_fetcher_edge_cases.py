@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
+from structlog.testing import capture_logs
 
 from pagetomd.config import Config
 from pagetomd.exceptions import ConfigError, FetchError, RobotsDisallowedError
@@ -143,8 +144,6 @@ def test_meta_refresh_disabled_when_follow_redirects_false() -> None:
 @respx.mock
 def test_mojibake_density_above_threshold_logs_warning() -> None:
     """A body dense in U+FFFD logs ``fetch.mojibake_detected``."""
-    from structlog.testing import capture_logs
-
     cfg = make_config()
     body = "ascii filler " * 20 + ("\ufffd" * 20)
     respx.get("https://example.com/mojibake").mock(
@@ -161,8 +160,6 @@ def test_mojibake_density_above_threshold_logs_warning() -> None:
 @respx.mock
 def test_clean_body_does_not_log_mojibake() -> None:
     """A clean body produces no mojibake warning."""
-    from structlog.testing import capture_logs
-
     cfg = make_config()
     respx.get("https://example.com/clean").mock(
         return_value=httpx.Response(
@@ -179,7 +176,6 @@ def test_clean_body_does_not_log_mojibake() -> None:
     assert "fetch.mojibake_detected" not in events
 
 
-from structlog.testing import capture_logs
 
 def test_warn_on_mojibake_skips_tiny_bodies() -> None:
     """Bodies under 100 chars produce no mojibake warning log."""
@@ -268,8 +264,6 @@ def _robots_cfg() -> Config:
 @respx.mock
 def test_robots_oversized_treated_as_unrestricted_with_warning() -> None:
     """A multi-MB robots.txt is aborted, logged, and treated as no restriction."""
-    from structlog.testing import capture_logs
-
     from pagetomd.fetcher import _ROBOTS_MAX_BYTES
 
     cfg = _robots_cfg()
@@ -340,8 +334,6 @@ def test_robots_exactly_at_limit_parsed_normally() -> None:
 @respx.mock
 def test_robots_one_byte_over_limit_triggers_warning() -> None:
     """``_ROBOTS_MAX_BYTES + 1`` bytes trips the inclusive cap check."""
-    from structlog.testing import capture_logs
-
     from pagetomd.fetcher import _ROBOTS_MAX_BYTES
 
     cfg = _robots_cfg()
@@ -390,8 +382,6 @@ def test_fetch_error_url_context_redacts_userinfo() -> None:
 @respx.mock
 def test_successful_fetch_does_not_log_userinfo() -> None:
     """A 200 fetch with userinfo emits zero log records mentioning credentials."""
-    from structlog.testing import capture_logs
-
     cfg = make_config()
     respx.get("https://example.com/x").mock(
         return_value=httpx.Response(

@@ -14,8 +14,6 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-
 import pagetomd.cli as cli_module
 from pagetomd import __version__
 from pagetomd.cli import app
@@ -29,6 +27,8 @@ from pagetomd.exceptions import (
     WriteError,
 )
 from pagetomd.pipeline import PipelineResult
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @pytest.fixture()
@@ -100,7 +100,7 @@ def test_help_mentions_locked_flags(runner: CliRunner) -> None:
     assert result.exit_code == 0
     # Strip ANSI escape codes so Rich/Typer formatting doesn't break
     # plain-text flag searches.
-    plain = _ANSI_RE.sub("", result.stdout)
+    plain = _ANSI_RE.sub("", result.stdout).replace("\n", " ")
     for flag in (
         "--output",
         "--overwrite",

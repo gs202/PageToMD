@@ -18,6 +18,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from pagetomd.config import Config
 from pagetomd.fetcher import FetchedDoc, Fetcher
 
 # Location of the hand-written HTML fixture corpus that drives the snapshot
@@ -267,9 +268,6 @@ def _module_combined_coverage(coverage_obj: object, module_path: str) -> float |
 # ---------------------------------------------------------------------------
 # Shared test-data factories
 # ---------------------------------------------------------------------------
-
-from pagetomd.config import Config
-from pagetomd.fetcher import FetchedDoc
 
 
 def make_config(**overrides: object) -> Config:
