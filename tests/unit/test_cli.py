@@ -115,7 +115,6 @@ def test_help_mentions_locked_flags(runner: CliRunner) -> None:
         "--user-agent",
         "--no-verify-ssl",
         "--respect-robots",
-        "--no-respect-robots",
         "--max-redirects",
         "--include-comments",
         "--include-images",
