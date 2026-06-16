@@ -9,8 +9,10 @@ import pytest
 
 from pagetomd import pipeline
 from pagetomd.config import Config
-from pagetomd.exceptions import FetchError
+from pagetomd.exceptions import ExtractionEmptyError, FetchError
 from pagetomd.fetcher import FetchedDoc
+from pagetomd.pipeline import run
+from tests.conftest import make_config, make_fetched_doc
 
 
 _RICH_BODY_TEXT = (
@@ -34,32 +36,6 @@ def _rich_html(marker: str | None = None) -> str:
         "<html><head><title>x</title></head>"
         f"<body><article><h1>Title</h1><p>{_RICH_BODY_TEXT}</p>{middle}</article></body></html>"
     )
-
-
-def _doc(html: str, url: str = "https://example.com/x") -> FetchedDoc:
-    """Build a :class:`FetchedDoc` populated with ``html``."""
-    return FetchedDoc(
-        url=url,
-        final_url=url,
-        status_code=200,
-        html=html,
-        content_type="text/html; charset=utf-8",
-        encoding="utf-8",
-        headers={},
-        elapsed_ms=1,
-    )
-
-
-def _make_config(tmp_path: Path, **overrides: object) -> Config:
-    """Build a config with sensible defaults for these tests."""
-    base: dict[str, object] = {
-        "url": "https://example.com/x",
-        "output": tmp_path / "out.md",
-        "log_level": "warning",
-        "fetcher": "auto",
-    }
-    base.update(overrides)
-    return Config.from_overrides(base)
 
 
 class _FakeHttpx:
@@ -110,7 +86,7 @@ class _FakePlaywright:
         self.called = False
         self.closed = False
         # Returned by ``fetch`` so the caller can assert it propagates.
-        self._doc = _doc(
+        self._doc = make_fetched_doc(
             "<html><body><article><h1>Playwright</h1>"
             f"<p>{_RICH_BODY_TEXT}</p></article></body></html>",
             url="https://example.com/x",
@@ -162,8 +138,8 @@ def test_auto_skips_playwright_when_body_rich(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Rich httpx response short-circuits — playwright is never built."""
-    config = _make_config(tmp_path)
-    fake_httpx = _FakeHttpx(doc=_doc(_rich_html()))
+    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
+    fake_httpx = _FakeHttpx(doc=make_fetched_doc(_rich_html()))
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
     monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
 
@@ -178,9 +154,9 @@ def test_auto_skips_playwright_when_body_rich(
 
 def test_auto_falls_back_on_spa_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """SPA-shaped httpx response triggers the playwright retry."""
-    config = _make_config(tmp_path)
+    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
     shell = _shell_html('<div id="app"></div>')
-    fake_httpx = _FakeHttpx(doc=_doc(shell))
+    fake_httpx = _FakeHttpx(doc=make_fetched_doc(shell))
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
     monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
 
@@ -206,7 +182,7 @@ def test_auto_propagates_httpx_fetch_error_without_trying_playwright(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Httpx-side errors bubble up untouched — no browser is launched."""
-    config = _make_config(tmp_path)
+    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
     boom = FetchError("network down", url=config.url)
     fake_httpx = _FakeHttpx(exc=boom)
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
@@ -221,9 +197,9 @@ def test_auto_propagates_httpx_fetch_error_without_trying_playwright(
 
 def test_auto_close_lifecycle_on_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Both backends are closed on ``__exit__`` even when the body raised."""
-    config = _make_config(tmp_path)
+    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
     shell = _shell_html('<div id="app"></div>')
-    fake_httpx = _FakeHttpx(doc=_doc(shell))
+    fake_httpx = _FakeHttpx(doc=make_fetched_doc(shell))
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
     monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
 
@@ -240,30 +216,161 @@ def test_auto_close_lifecycle_on_exception(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_auto_close_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Calling close() repeatedly is safe."""
-    config = _make_config(tmp_path)
-    fake_httpx = _FakeHttpx(doc=_doc(_rich_html()))
+    """Calling close() twice is safe and does not double-close backends."""
+    config = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
+    fake_httpx = _FakeHttpx(doc=make_fetched_doc(_rich_html()))
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
     monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
 
     auto = pipeline._AutoFetcher(config)
-    auto.__enter__()
+    with auto:
+        pass  # __exit__ calls close() once
+
+    assert fake_httpx.closed is True
     auto.close()
-    # Second close must be a no-op.
-    auto.close()
+    assert fake_httpx.closed is True
 
 
 def test_select_fetcher_httpx(tmp_path: Path) -> None:
     """``fetcher='httpx'`` selects :class:`HttpxFetcher`."""
     from pagetomd.fetcher import HttpxFetcher
 
-    cfg = _make_config(tmp_path, fetcher="httpx")
+    cfg = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="httpx")
     selected = pipeline._select_fetcher(cfg)
     assert isinstance(selected, HttpxFetcher)
 
 
 def test_select_fetcher_auto(tmp_path: Path) -> None:
     """``fetcher='auto'`` selects :class:`_AutoFetcher`."""
-    cfg = _make_config(tmp_path, fetcher="auto")
+    cfg = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", fetcher="auto")
     selected = pipeline._select_fetcher(cfg)
     assert isinstance(selected, pipeline._AutoFetcher)
+
+
+# ---------------------------------------------------------------------------
+# Extraction-failure fallback — pipeline retries with playwright when
+# httpx content passes the SPA heuristic but extraction still fails.
+# ---------------------------------------------------------------------------
+
+# Unique body text so trafilatura's LRU deduplicator never short-circuits.
+_EXTRACTION_FALLBACK_BODY = (
+    "This is a real article with plenty of meaningful body text for the "
+    "extraction-fallback test. It contains many sentences, none of which "
+    "are SPA placeholders. We deliberately pad it well past the 200 "
+    "character SPA threshold so the heuristic recognises it as fully-"
+    "rendered prose, not a shell. Unique marker: extraction-fallback-pw."
+)
+
+
+def _playwright_article_html() -> str:
+    """Rich article HTML that Playwright would return after rendering."""
+    return (
+        "<html><head><title>Article</title></head>"
+        f"<body><article><h1>Article</h1><p>{_EXTRACTION_FALLBACK_BODY}</p></article></body></html>"
+    )
+
+
+def test_auto_pipeline_falls_back_on_extraction_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When httpx HTML passes heuristic but extraction fails, retry with playwright."""
+    config = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="auto",
+    )
+    # httpx returns a rich-looking page (passes SPA heuristic) but
+    # extraction will be forced to fail via a mock.
+    httpx_doc = make_fetched_doc(_rich_html(), url="https://example.com/x")
+    fake_httpx = _FakeHttpx(doc=httpx_doc)
+    monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
+
+    # Override the playwright fake's response to carry extractable content.
+    original_init = _FakePlaywright.__init__
+
+    def _init_with_article(self: _FakePlaywright, cfg: Config) -> None:
+        original_init(self, cfg)
+        self._doc = make_fetched_doc(
+            _playwright_article_html(), url="https://example.com/x"
+        )
+
+    monkeypatch.setattr(_FakePlaywright, "__init__", _init_with_article)
+    monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
+
+    # Mock extract: fail on the first call (httpx HTML), succeed on the second
+    # (playwright HTML). This simulates a page whose static HTML cannot be
+    # extracted but whose JS-rendered content can.
+    call_count = 0
+    real_extract = pipeline.extract
+
+    def _extract_fail_then_succeed(doc: FetchedDoc, cfg: Config) -> object:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ExtractionEmptyError(
+                "Extractor produced no readable content",
+                url="https://example.com/x",
+                html_length=len(doc.html),
+            )
+        return real_extract(doc, cfg)
+
+    monkeypatch.setattr(pipeline, "extract", _extract_fail_then_succeed)
+
+    result = run(config)
+
+    assert call_count == 2
+    assert result.output_path is not None
+    assert result.output_path.exists()
+    text = result.output_path.read_text(encoding="utf-8")
+    assert "extraction-fallback-pw" in text
+
+
+def test_auto_pipeline_extraction_empty_no_fallback_for_non_auto(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When fetcher is not auto, ExtractionEmptyError propagates unchanged."""
+    config = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="httpx",
+    )
+
+    # Force extraction to always fail.
+    def _extract_always_fail(doc: FetchedDoc, cfg: Config) -> object:
+        raise ExtractionEmptyError(
+            "Extractor produced no readable content",
+            url="https://example.com/x",
+            html_length=len(doc.html),
+        )
+
+    monkeypatch.setattr(pipeline, "extract", _extract_always_fail)
+
+    fetcher_doc = make_fetched_doc(_rich_html(), url="https://example.com/x")
+    fake_httpx = _FakeHttpx(doc=fetcher_doc)
+    monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
+
+    with pytest.raises(ExtractionEmptyError):
+        run(config)
+
+
+def test_auto_fetch_playwright_method(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``fetch_playwright`` lazily builds and delegates to the playwright backend."""
+    config = make_config(
+        url="https://example.com/x",
+        output=tmp_path / "out.md",
+        log_level="warning",
+        fetcher="auto",
+    )
+    fake_httpx = _FakeHttpx(doc=make_fetched_doc(_rich_html()))
+    monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
+    monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
+
+    with pipeline._AutoFetcher(config) as auto:
+        assert auto._playwright is None
+        result = auto.fetch_playwright(config.url)
+
+    assert "Playwright" in result.html

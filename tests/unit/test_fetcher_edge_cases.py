@@ -9,32 +9,13 @@ import respx
 from pagetomd.config import Config
 from pagetomd.exceptions import ConfigError, FetchError, RobotsDisallowedError
 from pagetomd.fetcher import HttpxFetcher
-
-
-@pytest.fixture(autouse=True)
-def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Same tenacity-sleep neutering as the main fetcher tests."""
-    monkeypatch.setattr("tenacity.nap.time.sleep", lambda _seconds: None)
-
-
-def _make_config(**overrides: object) -> Config:
-    """Build a fetcher-test :class:`Config` with the usual safe defaults."""
-    base: dict[str, object] = {
-        "url": "https://example.com/",
-        "timeout": 5.0,
-        "retries": 1,
-        "respect_robots": False,
-        "follow_redirects": True,
-        "max_redirects": 5,
-    }
-    base.update(overrides)
-    return Config(**base)  # type: ignore[arg-type]
+from tests.conftest import make_config
 
 
 @respx.mock
 def test_meta_refresh_follows_body_redirect() -> None:
     """A ``<meta http-equiv="refresh">`` body redirect chases the target."""
-    cfg = _make_config()
+    cfg = make_config()
     redirect_body = (
         '<html><head><meta http-equiv="refresh" content="0; url=/real">'
         "</head><body>landing</body></html>"
@@ -60,7 +41,7 @@ def test_meta_refresh_follows_body_redirect() -> None:
 @respx.mock
 def test_meta_refresh_resolves_relative_url_against_final_url() -> None:
     """Relative meta-refresh targets resolve against ``final_url``."""
-    cfg = _make_config()
+    cfg = make_config()
     redirect_body = (
         '<html><head><meta http-equiv="refresh" content="1; url=child.html">'
         "</head><body>x</body></html>"
@@ -84,7 +65,7 @@ def test_meta_refresh_resolves_relative_url_against_final_url() -> None:
 @respx.mock
 def test_meta_refresh_ignored_when_delay_too_long() -> None:
     """A delay above 5 s is a bookmark hint, not an immediate redirect."""
-    cfg = _make_config()
+    cfg = make_config()
     body = (
         '<html><head><meta http-equiv="refresh" content="30; url=/elsewhere">'
         "</head><body>stay</body></html>"
@@ -104,7 +85,7 @@ def test_meta_refresh_ignored_when_delay_too_long() -> None:
 @respx.mock
 def test_meta_refresh_hop_cap_aborts_after_three() -> None:
     """The fourth meta-refresh hop is treated as terminal, not infinite."""
-    cfg = _make_config()
+    cfg = make_config()
 
     def refresh_to(target: str) -> str:
         return (
@@ -146,7 +127,7 @@ def test_meta_refresh_disabled_when_follow_redirects_false() -> None:
     body = (
         '<html><head><meta http-equiv="refresh" content="0; url=/x"></head><body>stay</body></html>'
     )
-    cfg = _make_config(follow_redirects=False)
+    cfg = make_config(follow_redirects=False)
     respx.get("https://example.com/").mock(
         return_value=httpx.Response(200, html=body, headers={"Content-Type": "text/html"})
     )
@@ -164,7 +145,7 @@ def test_mojibake_density_above_threshold_logs_warning() -> None:
     """A body dense in U+FFFD logs ``fetch.mojibake_detected``."""
     from structlog.testing import capture_logs
 
-    cfg = _make_config()
+    cfg = make_config()
     body = "ascii filler " * 20 + ("\ufffd" * 20)
     respx.get("https://example.com/mojibake").mock(
         return_value=httpx.Response(200, html=body, headers={"Content-Type": "text/html"})
@@ -182,7 +163,7 @@ def test_clean_body_does_not_log_mojibake() -> None:
     """A clean body produces no mojibake warning."""
     from structlog.testing import capture_logs
 
-    cfg = _make_config()
+    cfg = make_config()
     respx.get("https://example.com/clean").mock(
         return_value=httpx.Response(
             200,
@@ -198,19 +179,23 @@ def test_clean_body_does_not_log_mojibake() -> None:
     assert "fetch.mojibake_detected" not in events
 
 
+from structlog.testing import capture_logs
+
 def test_warn_on_mojibake_skips_tiny_bodies() -> None:
-    """Bodies under 100 chars skip the density check entirely."""
+    """Bodies under 100 chars produce no mojibake warning log."""
     from pagetomd.fetcher import _warn_on_mojibake
 
-    # No raise, no log. We just want the function to be a no-op for tiny
-    # inputs (length floor avoids tripping on a single replacement).
-    _warn_on_mojibake("\ufffd" * 50, "https://x/")
+    with capture_logs() as cap:
+        _warn_on_mojibake("\ufffd" * 50, "https://x/")
+
+    events = {entry["event"] for entry in cap}
+    assert "fetch.mojibake_detected" not in events
 
 
 @respx.mock
 def test_content_length_header_exceeds_cap_raises_fetch_error() -> None:
     """A Content-Length above the cap raises ``FetchError`` early."""
-    cfg = _make_config(max_body_bytes=100)
+    cfg = make_config(max_body_bytes=100)
     respx.get("https://example.com/big").mock(
         return_value=httpx.Response(
             200,
@@ -231,7 +216,7 @@ def test_content_length_header_exceeds_cap_raises_fetch_error() -> None:
 @respx.mock
 def test_actual_body_exceeds_cap_raises_fetch_error() -> None:
     """When Content-Length is absent, the body size is enforced post-fetch."""
-    cfg = _make_config(max_body_bytes=50)
+    cfg = make_config(max_body_bytes=50)
     body = b"x" * 5000
 
     def _build(request: httpx.Request) -> httpx.Response:
@@ -277,7 +262,7 @@ def test_detect_meta_refresh_falls_back_to_full_body_without_head() -> None:
 
 def _robots_cfg() -> Config:
     """Config with robots ON — needed to exercise the streaming cap."""
-    return _make_config(respect_robots=True)
+    return make_config(respect_robots=True)
 
 
 @respx.mock
@@ -384,7 +369,7 @@ def test_robots_one_byte_over_limit_triggers_warning() -> None:
 @respx.mock
 def test_fetch_error_url_context_redacts_userinfo() -> None:
     """A 500 response on a userinfo URL produces a FetchError without credentials."""
-    cfg = _make_config()
+    cfg = make_config()
     respx.get("https://example.com/x").mock(
         return_value=httpx.Response(500, html="boom", headers={"Content-Type": "text/html"})
     )
@@ -407,7 +392,7 @@ def test_successful_fetch_does_not_log_userinfo() -> None:
     """A 200 fetch with userinfo emits zero log records mentioning credentials."""
     from structlog.testing import capture_logs
 
-    cfg = _make_config()
+    cfg = make_config()
     respx.get("https://example.com/x").mock(
         return_value=httpx.Response(
             200,

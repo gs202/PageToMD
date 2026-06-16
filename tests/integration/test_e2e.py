@@ -85,50 +85,22 @@ def test_robots_missing_on_localhost_proceeds(
     assert out.exists()
 
 
-@pytest.mark.parametrize("mode", ["kv", "html", "drop"])
-def test_wide_table_modes_produce_distinct_output(
-    mode: str, run_cli: RunCli, local_http_server: str, tmp_path: Path
-) -> None:
-    """Each ``--wide-tables`` mode renders the wide table differently."""
-    out = tmp_path / f"tables_{mode}.md"
-    run_cli(
-        [
-            f"{local_http_server}/tables.html",
-            "-o",
-            str(out),
-            "--wide-tables",
-            mode,
-        ]
-    )
-    text = out.read_text(encoding="utf-8")
-    if mode == "kv":
-        assert "### Row 1" in text
-        assert "- **Date**" in text
-    elif mode == "html":
-        assert "<table" in text
-        # TEI markup must NOT leak.
-        assert "<row" not in text
-    elif mode == "drop":
-        assert "pagetomd: wide table dropped" in text
-
-
-def test_wide_table_modes_produce_different_bytes(
+def test_wide_table_modes_produce_distinct_and_correct_output(
     run_cli: RunCli, local_http_server: str, tmp_path: Path
 ) -> None:
-    """The three modes must produce three distinct rendered documents."""
+    """The three wide-table modes produce correct and distinct outputs end-to-end."""
     outputs: dict[str, str] = {}
     for mode in ("kv", "html", "drop"):
         out = tmp_path / f"tables_{mode}.md"
-        run_cli(
-            [
-                f"{local_http_server}/tables.html",
-                "-o",
-                str(out),
-                "--wide-tables",
-                mode,
-            ]
-        )
+        run_cli([f"{local_http_server}/tables.html", "-o", str(out), "--wide-tables", mode])
         outputs[mode] = out.read_text(encoding="utf-8")
+
+    # Mode-specific content checks
+    assert "### Row 1" in outputs["kv"] and "- **Date**" in outputs["kv"]
+    assert "<table" in outputs["html"] and "<row" not in outputs["html"]
+    assert "pagetomd: wide table dropped" in outputs["drop"]
+
+    # Cross-mode inequality (ensures they are distinct)
     assert outputs["kv"] != outputs["html"]
     assert outputs["html"] != outputs["drop"]
     assert outputs["kv"] != outputs["drop"]

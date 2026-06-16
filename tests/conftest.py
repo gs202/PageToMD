@@ -202,3 +202,51 @@ def _module_combined_coverage(coverage_obj: object, module_path: str) -> float |
     if total == 0:
         return None
     return covered / total * 100.0
+
+
+# ---------------------------------------------------------------------------
+# Shared test-data factories
+# ---------------------------------------------------------------------------
+
+from pagetomd.config import Config
+from pagetomd.fetcher import FetchedDoc
+
+
+def make_config(**overrides: object) -> Config:
+    """Minimal :class:`Config` for unit tests; all fields overridable.
+
+    Provides sensible defaults so callers only need to supply the fields
+    relevant to the behaviour under test.
+    """
+    base: dict[str, object] = {
+        "url": "https://example.com/",
+        "timeout": 5.0,
+        "retries": 3,
+        "respect_robots": False,
+        "follow_redirects": True,
+        "max_redirects": 5,
+    }
+    base.update(overrides)
+    return Config(**base)  # type: ignore[arg-type]
+
+
+def make_fetched_doc(
+    html: str = "",
+    url: str = "https://example.com/x",
+    *,
+    status_code: int = 200,
+    content_type: str = "text/html; charset=utf-8",
+    encoding: str = "utf-8",
+    elapsed_ms: int = 1,
+) -> FetchedDoc:
+    """Minimal :class:`FetchedDoc` for unit tests; all fields overridable."""
+    return FetchedDoc(
+        url=url,
+        final_url=url,
+        status_code=status_code,
+        html=html,
+        content_type=content_type,
+        encoding=encoding,
+        headers={},
+        elapsed_ms=elapsed_ms,
+    )

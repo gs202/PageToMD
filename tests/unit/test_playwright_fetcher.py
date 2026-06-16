@@ -10,18 +10,7 @@ import pytest
 from pagetomd import fetcher as fetcher_module
 from pagetomd.config import Config
 from pagetomd.exceptions import DependencyMissingError
-
-
-def _make_config(tmp_path: Path, **overrides: object) -> Config:
-    """Build a :class:`Config` suitable for playwright fetcher tests."""
-    base: dict[str, object] = {
-        "url": "https://example.com/x",
-        "output": tmp_path / "out.md",
-        "log_level": "warning",
-        "playwright_idle_ms": 0,
-    }
-    base.update(overrides)
-    return Config.from_overrides(base)
+from tests.conftest import make_config
 
 
 def test_all_exports_playwright_fetcher() -> None:
@@ -33,7 +22,7 @@ def test_dependency_missing_when_playwright_not_importable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Construction raises :class:`DependencyMissingError` when import fails."""
-    cfg = _make_config(tmp_path)
+    cfg = make_config(url="https://example.com/x", output=tmp_path / "out.md", log_level="warning", playwright_idle_ms=0)
     monkeypatch.setitem(sys.modules, "playwright", None)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
 
@@ -55,7 +44,7 @@ def test_playwright_smoke_renders_local_fixture(
     if not chromium_available:
         pytest.skip("chromium not available; run `playwright install chromium`")
 
-    cfg = _make_config(tmp_path, url=f"{local_http_server}/spa_vue.html")
+    cfg = make_config(url=f"{local_http_server}/spa_vue.html", output=tmp_path / "out.md", log_level="warning", playwright_idle_ms=0)
     with fetcher_module.PlaywrightFetcher(cfg) as f:
         doc = f.fetch(cfg.url)
 
@@ -75,9 +64,11 @@ def test_playwright_robots_delegate_is_invoked(
     if not chromium_available:
         pytest.skip("chromium not available; run `playwright install chromium`")
 
-    cfg = _make_config(
-        tmp_path,
+    cfg = make_config(
         url="https://example.com/x",  # public host → robots check runs
+        output=tmp_path / "out.md",
+        log_level="warning",
+        playwright_idle_ms=0,
         respect_robots=True,
     )
     calls: list[str] = []

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,7 @@ from pagetomd.exceptions import (
 )
 from pagetomd.fetcher import FetchedDoc
 from pagetomd.pipeline import PipelineResult, run
+from tests.conftest import make_config, make_fetched_doc
 
 
 _BODY_TEMPLATE = (
@@ -44,25 +45,6 @@ def _article_html(marker: str) -> str:
 _EMPTY_HTML = "<!doctype html><html><head></head><body></body></html>"
 
 
-def _doc(
-    *,
-    marker: str,
-    html: str | None = None,
-    url: str = "https://example.com/x",
-) -> FetchedDoc:
-    """Build a :class:`FetchedDoc` populated with a deterministic payload."""
-    return FetchedDoc(
-        url=url,
-        final_url=url,
-        status_code=200,
-        html=html if html is not None else _article_html(marker),
-        content_type="text/html; charset=utf-8",
-        encoding="utf-8",
-        headers={},
-        elapsed_ms=12,
-    )
-
-
 class FakeFetcher:
     """Fake fetcher that returns a seeded doc or raises a seeded exception."""
 
@@ -73,7 +55,7 @@ class FakeFetcher:
         exc: Exception | None = None,
         marker: str = "default",
     ) -> None:
-        self._doc = doc if doc is not None else _doc(marker=marker)
+        self._doc = doc if doc is not None else make_fetched_doc(_article_html(marker))
         self._exc = exc
         self.calls: list[str] = []
         self.closed = False
@@ -112,7 +94,7 @@ class ContextManagerFakeFetcher(FakeFetcher):
         self.exited = True
 
 
-def make_config(tmp_path: Path, **overrides: object) -> Config:
+def _pipeline_config(tmp_path: Path, **overrides: object) -> Config:
     """Build a :class:`Config` with safe defaults for pipeline tests."""
     base: dict[str, object] = {
         "url": "https://example.com/x",
@@ -137,7 +119,7 @@ def _reset_contextvars() -> Iterator[None]:
 
 def test_run_happy_path_writes_file(tmp_path: Path) -> None:
     """Full pipeline writes a file beginning with frontmatter + body text."""
-    config = make_config(tmp_path)
+    config = _pipeline_config(tmp_path)
     fetcher = FakeFetcher(marker="happy")
 
     result = run(config, fetcher=fetcher)
@@ -155,7 +137,7 @@ def test_run_happy_path_writes_file(tmp_path: Path) -> None:
 def test_run_result_fields_populated(tmp_path: Path) -> None:
     """``PipelineResult`` carries the expected per-field values."""
     target = tmp_path / "out.md"
-    config = make_config(tmp_path, output=target)
+    config = _pipeline_config(tmp_path, output=target)
     fetcher = FakeFetcher(marker="result-fields")
 
     result = run(config, fetcher=fetcher)
@@ -175,7 +157,7 @@ def test_run_stdout_sink(
 ) -> None:
     """``output == Path("-")`` streams to stdout and creates no file."""
     monkeypatch.chdir(tmp_path)
-    config = make_config(tmp_path, output=Path("-"))
+    config = _pipeline_config(tmp_path, output=Path("-"))
     fetcher = FakeFetcher(marker="stdout-sink")
 
     result = run(config, fetcher=fetcher)
@@ -198,7 +180,7 @@ def test_run_default_output_path(
     from pagetomd.writer import slugify_default_path
 
     monkeypatch.chdir(tmp_path)
-    config = make_config(tmp_path, output=None)
+    config = _pipeline_config(tmp_path, output=None)
     fetcher = FakeFetcher(marker="default-path")
 
     expected = slugify_default_path(
@@ -213,54 +195,50 @@ def test_run_default_output_path(
     assert result.output_path.exists()
 
 
-def test_run_no_fetched_at_true_omits_timestamp(tmp_path: Path) -> None:
-    """``no_fetched_at=True`` drops the ``fetched_at:`` frontmatter field."""
-    config = make_config(tmp_path, no_fetched_at=True)
-    fetcher = FakeFetcher(marker="no-fetched-at-true")
-
+@pytest.mark.parametrize(
+    ("no_fetched_at", "expect_present"),
+    [(True, False), (False, True)],
+    ids=["omitted", "included"],
+)
+def test_run_fetched_at_field(
+    tmp_path: Path, no_fetched_at: bool, expect_present: bool
+) -> None:
+    """fetched_at: appears iff no_fetched_at is False."""
+    config = make_config(output=tmp_path / "out.md", no_fetched_at=no_fetched_at)
+    fetcher = FakeFetcher(marker=f"fetched-at-{no_fetched_at}")
     result = run(config, fetcher=fetcher)
-
     assert result.output_path is not None
-    assert "fetched_at:" not in result.output_path.read_text(encoding="utf-8")
+    text = result.output_path.read_text(encoding="utf-8")
+    if expect_present:
+        assert "fetched_at:" in text
+    else:
+        assert "fetched_at:" not in text
 
 
-def test_run_no_fetched_at_default_includes_timestamp(tmp_path: Path) -> None:
-    """The default (``no_fetched_at=False``) preserves ``fetched_at:``."""
-    config = make_config(tmp_path)  # default no_fetched_at == False
-    fetcher = FakeFetcher(marker="no-fetched-at-default")
-
-    result = run(config, fetcher=fetcher)
-
-    assert result.output_path is not None
-    assert "fetched_at:" in result.output_path.read_text(encoding="utf-8")
-
-
-def test_run_fetch_error_surfaces_unwrapped(tmp_path: Path) -> None:
-    """``FetchError`` raised by the fetcher propagates without wrapping."""
-    target = tmp_path / "out.md"
-    config = make_config(tmp_path, output=target)
-    fetcher = FakeFetcher(exc=FetchError("bad", url=config.url))
-
-    with pytest.raises(FetchError) as excinfo:
-        run(config, fetcher=fetcher)
-
-    assert "bad" in str(excinfo.value)
-    assert not target.exists()
-
-
-def test_run_robots_disallowed_surfaces_unwrapped(tmp_path: Path) -> None:
-    """``RobotsDisallowedError`` propagates unchanged."""
-    config = make_config(tmp_path)
-    fetcher = FakeFetcher(exc=RobotsDisallowedError("nope", url=config.url))
-
-    with pytest.raises(RobotsDisallowedError):
+@pytest.mark.parametrize(
+    ("exc_factory", "exc_cls"),
+    [
+        (lambda url: FetchError("bad", url=url), FetchError),
+        (lambda url: RobotsDisallowedError("nope", url=url), RobotsDisallowedError),
+    ],
+    ids=["fetch_error", "robots_disallowed"],
+)
+def test_run_fetch_side_errors_propagate_unwrapped(
+    tmp_path: Path,
+    exc_factory: Callable[[str], Exception],
+    exc_cls: type[Exception],
+) -> None:
+    """Fetch-layer errors propagate without wrapping."""
+    config = make_config(output=tmp_path / "out.md")
+    fetcher = FakeFetcher(exc=exc_factory(config.url))
+    with pytest.raises(exc_cls):
         run(config, fetcher=fetcher)
 
 
 def test_run_extraction_empty_surfaces_unwrapped(tmp_path: Path) -> None:
     """An empty body triggers :class:`ExtractionEmptyError` from the extractor."""
-    config = make_config(tmp_path)
-    fetcher = FakeFetcher(doc=_doc(marker="empty", html=_EMPTY_HTML))
+    config = _pipeline_config(tmp_path)
+    fetcher = FakeFetcher(doc=make_fetched_doc(html=_EMPTY_HTML))
 
     with pytest.raises(ExtractionEmptyError):
         run(config, fetcher=fetcher)
@@ -271,7 +249,7 @@ def test_run_conversion_error_surfaces_unwrapped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A :class:`ConversionError` raised mid-pipeline bubbles up unchanged."""
-    config = make_config(tmp_path)
+    config = _pipeline_config(tmp_path)
     fetcher = FakeFetcher(marker="conv-err")
 
     def _raise_conversion(*_args: object, **_kwargs: object) -> str:
@@ -289,7 +267,7 @@ def test_run_unexpected_exception_wrapped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A bare :class:`RuntimeError` is wrapped as :class:`PageToMdError`."""
-    config = make_config(tmp_path)
+    config = _pipeline_config(tmp_path)
     fetcher = FakeFetcher(marker="boom")
 
     def _boom(*_args: object, **_kwargs: object) -> str:
@@ -319,7 +297,7 @@ def test_run_playwright_missing_dependency_raises_typed(
     monkeypatch.setitem(sys.modules, "playwright", None)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
 
-    config = make_config(tmp_path, fetcher="playwright")
+    config = _pipeline_config(tmp_path, fetcher="playwright")
 
     with pytest.raises(DependencyMissingError) as excinfo:
         run(config)
@@ -329,7 +307,7 @@ def test_run_playwright_missing_dependency_raises_typed(
 
 def test_run_injected_fetcher_lifecycle_untouched(tmp_path: Path) -> None:
     """The pipeline never tears down a caller-injected fetcher."""
-    config = make_config(tmp_path)
+    config = _pipeline_config(tmp_path)
     fetcher = FakeFetcher(marker="lifecycle")
 
     run(config, fetcher=fetcher)
@@ -342,7 +320,7 @@ def test_run_httpx_fetcher_context_managed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When no fetcher is injected, the httpx backend is entered + exited."""
-    config = make_config(tmp_path, fetcher="httpx")
+    config = _pipeline_config(tmp_path, fetcher="httpx")
 
     created: list[ContextManagerFakeFetcher] = []
 
@@ -360,30 +338,31 @@ def test_run_httpx_fetcher_context_managed(
     assert created[0].exited is True
 
 
-def test_run_clears_contextvars_on_success(tmp_path: Path) -> None:
-    """A successful run must leave the contextvar store empty."""
-    config = make_config(tmp_path)
-    fetcher = FakeFetcher(marker="ctxvars-ok")
-
-    run(config, fetcher=fetcher)
-
-    assert structlog.contextvars.get_contextvars() == {}
-
-
-def test_run_clears_contextvars_on_failure(tmp_path: Path) -> None:
-    """A failed run must still leave the contextvar store empty."""
-    config = make_config(tmp_path)
-    fetcher = FakeFetcher(exc=FetchError("nope", url=config.url))
-
-    with pytest.raises(FetchError):
+@pytest.mark.parametrize(
+    ("exc", "raises"),
+    [
+        (None, False),
+        (FetchError("nope", url="https://example.com/x"), True),
+    ],
+    ids=["success", "failure"],
+)
+def test_run_clears_contextvars(
+    tmp_path: Path, exc: Exception | None, raises: bool
+) -> None:
+    """Contextvars are cleared regardless of pipeline outcome."""
+    config = make_config(output=tmp_path / "out.md")
+    fetcher = FakeFetcher(exc=exc, marker="ctxvars") if exc else FakeFetcher(marker="ctxvars")
+    if raises:
+        with pytest.raises(FetchError):
+            run(config, fetcher=fetcher)
+    else:
         run(config, fetcher=fetcher)
-
     assert structlog.contextvars.get_contextvars() == {}
 
 
 def test_run_emits_pipeline_start_and_ok(tmp_path: Path) -> None:
     """Both ``pipeline.start`` and ``pipeline.ok`` appear with expected fields."""
-    config = make_config(tmp_path, fetcher="httpx")
+    config = _pipeline_config(tmp_path, fetcher="httpx")
     fetcher = FakeFetcher(marker="log-events")
 
     with capture_logs() as cap:
@@ -403,34 +382,16 @@ def test_run_emits_pipeline_start_and_ok(tmp_path: Path) -> None:
     assert ok["output_path"].endswith("out.md")
 
 
-def test_resolve_base_url_falls_back_to_final_url_when_no_base_href() -> None:
-    """``base_href=None`` → the fetcher's ``final_url`` wins."""
+@pytest.mark.parametrize(
+    ("base_href", "final_url", "expected"),
+    [
+        (None, "https://example.com/x", "https://example.com/x"),
+        ("/assets/", "https://example.com/post", "https://example.com/assets/"),
+        ("https://cdn.example.com/site/", "https://origin.example.test/page", "https://cdn.example.com/site/"),
+    ],
+    ids=["no_base_href", "relative_base_href", "absolute_base_href"],
+)
+def test_resolve_base_url(base_href: str | None, final_url: str, expected: str) -> None:
+    """_resolve_base_url correctly resolves all three base-href cases."""
     from pagetomd.pipeline import _resolve_base_url
-
-    assert (
-        _resolve_base_url(base_href=None, final_url="https://example.com/x")
-        == "https://example.com/x"
-    )
-
-
-def test_resolve_base_url_resolves_relative_base_href_against_final_url() -> None:
-    """A relative ``<base href>`` is resolved against ``final_url``."""
-    from pagetomd.pipeline import _resolve_base_url
-
-    assert (
-        _resolve_base_url(base_href="/assets/", final_url="https://example.com/post")
-        == "https://example.com/assets/"
-    )
-
-
-def test_resolve_base_url_uses_absolute_base_href_directly() -> None:
-    """An absolute ``<base href>`` wins outright."""
-    from pagetomd.pipeline import _resolve_base_url
-
-    assert (
-        _resolve_base_url(
-            base_href="https://cdn.example.com/site/",
-            final_url="https://origin.example.test/page",
-        )
-        == "https://cdn.example.com/site/"
-    )
+    assert _resolve_base_url(base_href=base_href, final_url=final_url) == expected

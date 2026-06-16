@@ -10,27 +10,7 @@ from pagetomd.config import Config
 from pagetomd.exceptions import ExtractionEmptyError
 from pagetomd.extractor import ExtractedDoc, extract
 from pagetomd.fetcher import FetchedDoc
-
-
-def _doc(html: str) -> FetchedDoc:
-    """Build a synthetic :class:`FetchedDoc` for extraction tests."""
-    return FetchedDoc(
-        url="https://example.com/x",
-        final_url="https://example.com/x",
-        status_code=200,
-        html=html,
-        content_type="text/html",
-        encoding="utf-8",
-        headers={},
-        elapsed_ms=1,
-    )
-
-
-def _cfg(**overrides: object) -> Config:
-    """Build a :class:`Config` with defaults plus optional overrides."""
-    base: dict[str, object] = {"url": "https://example.com/x"}
-    base.update(overrides)
-    return Config(**base)  # type: ignore[arg-type]
+from tests.conftest import make_config, make_fetched_doc
 
 
 # A reasonably long article body — trafilatura ignores tiny inputs.
@@ -46,7 +26,7 @@ def test_happy_path_returns_title_and_body() -> None:
         f"<html><head><title>Title</title></head>"
         f"<body><article><h1>Title</h1><p>{_BODY}</p></article></body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
 
     assert isinstance(result, ExtractedDoc)
     assert result.title == "Title"
@@ -60,7 +40,7 @@ def test_script_and_style_are_stripped() -> None:
         f"<body><script>alert(1)</script>"
         f"<article><h1>T</h1><p>{_BODY}</p></article></body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
 
     assert "alert(1)" not in result.cleaned_html
     assert "color:red" not in result.cleaned_html
@@ -73,7 +53,7 @@ def test_comments_dropped_by_default() -> None:
         f"<body><article><h1>T</h1><!-- tracking pixel -->"
         f"<p>{_BODY}</p></article></body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
 
     assert "tracking pixel" not in result.cleaned_html
 
@@ -146,30 +126,24 @@ def test_anchor_attrs_scrubbed_keep_href_only() -> None:
 def test_empty_body_raises_extraction_empty_error() -> None:
     """An empty body produces no extractable content → typed error."""
     with pytest.raises(ExtractionEmptyError) as excinfo:
-        extract(_doc("<html><body></body></html>"), _cfg())
+        extract(make_fetched_doc("<html><body></body></html>"), make_config())
 
     assert excinfo.value.context["url"] == "https://example.com/x"
     assert "html_length" in excinfo.value.context
 
 
-def test_extraction_empty_when_trafilatura_returns_none(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "return_value",
+    [None, "   \n  "],
+    ids=["none", "whitespace"],
+)
+def test_extraction_empty_when_trafilatura_returns_falsy(
+    monkeypatch: pytest.MonkeyPatch, return_value: str | None
 ) -> None:
-    """When ``trafilatura.extract`` returns ``None`` we surface the typed error."""
-    monkeypatch.setattr("pagetomd.extractor.trafilatura.extract", lambda *a, **k: None)
-
+    """None and whitespace-only trafilatura output both raise ExtractionEmptyError."""
+    monkeypatch.setattr("pagetomd.extractor.trafilatura.extract", lambda *a, **k: return_value)
     with pytest.raises(ExtractionEmptyError):
-        extract(_doc(f"<html><body><p>{_BODY}</p></body></html>"), _cfg())
-
-
-def test_extraction_empty_when_trafilatura_returns_whitespace(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Pure-whitespace output is treated the same as ``None``."""
-    monkeypatch.setattr("pagetomd.extractor.trafilatura.extract", lambda *a, **k: "   \n  ")
-
-    with pytest.raises(ExtractionEmptyError):
-        extract(_doc(f"<html><body><p>{_BODY}</p></body></html>"), _cfg())
+        extract(make_fetched_doc(f"<html><body><p>{_BODY}</p></body></html>"), make_config())
 
 
 def test_metadata_exception_falls_back_to_all_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,7 +158,7 @@ def test_metadata_exception_falls_back_to_all_none(monkeypatch: pytest.MonkeyPat
         f"<html><head><title>T</title></head>"
         f"<body><article><h1>T</h1><p>{_BODY}</p></article></body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
 
     assert result.title is None
     assert result.author is None
@@ -256,7 +230,7 @@ def test_title_falls_back_to_title_tag_without_h1() -> None:
         f"<body><article><p>{_BODY}</p><p>{extra}</p><p>{third}</p>"
         f"</article></body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
 
     assert result.title == "From Title Tag"
 
@@ -283,47 +257,44 @@ def test_preclean_handles_nested_junk_siblings_without_crashing() -> None:
         "</div>"
         "</body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
     assert "Body" in result.cleaned_html
     # And the junk really is gone.
     assert "newsletter" not in result.cleaned_html
     assert "share-twitter" not in result.cleaned_html
 
 
-def test_preclean_annotates_pre_with_data_lang() -> None:
-    """``<pre><code class="language-python">`` → ``<pre data-lang="python">``."""
+@pytest.mark.parametrize(
+    ("html_snippet", "expected_langs", "expected_count"),
+    [
+        (
+            '<pre><code class="language-python">x = 1</code></pre>',
+            ['data-lang="python"'],
+            1,
+        ),
+        (
+            '<pre><code class="lang-rust">fn main() {}</code></pre>'
+            '<pre><code class="highlight-go">package main</code></pre>',
+            ['data-lang="rust"', 'data-lang="go"'],
+            2,
+        ),
+        (
+            "<pre><code>just text</code></pre>",
+            [],
+            0,
+        ),
+    ],
+    ids=["language_prefix", "lang_and_highlight_prefix", "no_lang"],
+)
+def test_preclean_lang_annotation(
+    html_snippet: str, expected_langs: list[str], expected_count: int
+) -> None:
     from pagetomd.extractor import _preclean
-
-    html = '<html><body><pre><code class="language-python">x = 1</code></pre></body></html>'
+    html = f"<html><body>{html_snippet}</body></html>"
     cleaned, removed = _preclean(html, include_comments=True)
-    assert 'data-lang="python"' in cleaned
-    assert removed["lang_annotated"] == 1
-
-
-def test_preclean_annotates_pre_lang_class_directly() -> None:
-    """Same recovery from ``class="lang-rust"`` and ``highlight-go``."""
-    from pagetomd.extractor import _preclean
-
-    html = (
-        "<html><body>"
-        '<pre><code class="lang-rust">fn main() {}</code></pre>'
-        '<pre><code class="highlight-go">package main</code></pre>'
-        "</body></html>"
-    )
-    cleaned, removed = _preclean(html, include_comments=True)
-    assert 'data-lang="rust"' in cleaned
-    assert 'data-lang="go"' in cleaned
-    assert removed["lang_annotated"] == 2
-
-
-def test_preclean_skips_pre_without_recognisable_lang() -> None:
-    """Pre blocks with no language class are not annotated."""
-    from pagetomd.extractor import _preclean
-
-    html = "<html><body><pre><code>just text</code></pre></body></html>"
-    cleaned, removed = _preclean(html, include_comments=True)
-    assert "data-lang" not in cleaned
-    assert removed["lang_annotated"] == 0
+    for lang in expected_langs:
+        assert lang in cleaned
+    assert removed["lang_annotated"] == expected_count
 
 
 def test_preclean_embeds_text_sentinel_for_lang() -> None:
@@ -345,7 +316,7 @@ def test_extract_captures_base_href_from_head() -> None:
         f"</head><body><article><h1>T</h1><p>{_BODY}{_PAD}</p>"
         f"<p>{_BODY}</p></article></body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
     assert result.base_href == "https://cdn.example/"
 
 
@@ -356,7 +327,7 @@ def test_extract_returns_none_when_base_href_missing() -> None:
         f"<body><article><h1>T</h1><p>{_BODY}{_PAD}</p>"
         f"<p>{_BODY}</p></article></body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
     assert result.base_href is None
 
 
@@ -367,14 +338,19 @@ def test_extract_ignores_empty_base_href() -> None:
         f"</head><body><article><h1>T</h1><p>{_BODY}{_PAD}</p>"
         f"<p>{_BODY}</p></article></body></html>"
     )
-    result = extract(_doc(html), _cfg())
+    result = extract(make_fetched_doc(html), make_config())
     assert result.base_href is None
 
 
-def test_extract_base_href_helper_unit_test() -> None:
-    """``_extract_base_href`` is exposed for direct testing."""
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        ('<html><head><base href="/x/"></head><body>y</body></html>', "/x/"),
+        ("<html><head></head><body>y</body></html>", None),
+        ('<html><head><base href="  "></head><body>y</body></html>', None),
+    ],
+    ids=["present", "absent", "whitespace_only"],
+)
+def test_extract_base_href_helper(html: str, expected: str | None) -> None:
     from pagetomd.extractor import _extract_base_href
-
-    assert _extract_base_href('<html><head><base href="/x/"></head><body>y</body></html>') == "/x/"
-    assert _extract_base_href("<html><head></head><body>y</body></html>") is None
-    assert _extract_base_href('<html><head><base href="  "></head><body>y</body></html>') is None
+    assert _extract_base_href(html) == expected

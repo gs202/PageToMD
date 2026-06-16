@@ -183,31 +183,17 @@ def test_bypass_env_var_only_literal_one(monkeypatch: pytest.MonkeyPatch) -> Non
         guard_url("http://127.0.0.1/")
 
 
-def test_redact_url_no_userinfo_unchanged() -> None:
-    """A URL without userinfo is returned byte-for-byte identical."""
-    assert redact_url("https://example.com/path?q=1#f") == "https://example.com/path?q=1#f"
-
-
-def test_redact_url_strips_user_only() -> None:
-    """A bare ``user@`` segment (no password) is stripped."""
-    assert redact_url("https://alice@example.com/x") == "https://example.com/x"
-
-
-def test_redact_url_strips_user_and_password() -> None:
-    """A full ``user:password@`` segment is stripped."""
-    assert redact_url("https://alice:secret@example.com/x") == "https://example.com/x"
-
-
-def test_redact_url_preserves_port() -> None:
-    """The explicit port survives redaction."""
-    assert redact_url("https://alice:secret@example.com:8443/x") == "https://example.com:8443/x"
-
-
-def test_redact_url_ipv6_with_userinfo() -> None:
-    """IPv6 host literals are re-bracketed after userinfo strip."""
-    assert redact_url("http://alice:secret@[2606:4700::1]:8080/x") == "http://[2606:4700::1]:8080/x"
-
-
-def test_redact_url_malformed_input_returned_unchanged() -> None:
-    """An unparseable URL is returned as-is (no hostname → no reconstruction)."""
-    assert redact_url("not a url") == "not a url"
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://example.com/path?q=1#f", "https://example.com/path?q=1#f"),
+        ("https://alice@example.com/x", "https://example.com/x"),
+        ("https://alice:secret@example.com/x", "https://example.com/x"),
+        ("https://alice:secret@example.com:8443/x", "https://example.com:8443/x"),
+        ("http://alice:secret@[2606:4700::1]:8080/x", "http://[2606:4700::1]:8080/x"),
+        ("not a url", "not a url"),
+    ],
+    ids=["no_userinfo", "user_only", "user_and_password", "preserves_port", "ipv6", "malformed"],
+)
+def test_redact_url(url: str, expected: str) -> None:
+    assert redact_url(url) == expected

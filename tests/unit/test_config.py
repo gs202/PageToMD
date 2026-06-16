@@ -11,18 +11,8 @@ from pagetomd.config import Config
 from pagetomd.exceptions import ConfigError
 
 
-def _scrub_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove any ambient PAGETOMD_* env vars so tests start from defaults."""
-    import os
-
-    for key in list(os.environ):
-        if key.startswith("PAGETOMD_"):
-            monkeypatch.delenv(key, raising=False)
-
-
-def test_defaults_applied_when_only_url_supplied(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_defaults_applied_when_only_url_supplied() -> None:
     """Supplying only ``url`` should populate every other field from the defaults."""
-    _scrub_env(monkeypatch)
     cfg = Config.from_overrides({"url": "https://example.com"})
 
     assert cfg.url == "https://example.com"
@@ -48,7 +38,6 @@ def test_defaults_applied_when_only_url_supplied(monkeypatch: pytest.MonkeyPatch
 
 def test_env_vars_override_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """Environment variables prefixed with PAGETOMD_ should override defaults."""
-    _scrub_env(monkeypatch)
     monkeypatch.setenv("PAGETOMD_TIMEOUT", "5")
     monkeypatch.setenv("PAGETOMD_RETRIES", "7")
     monkeypatch.setenv("PAGETOMD_FETCHER", "playwright")
@@ -70,15 +59,13 @@ def test_env_vars_override_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cli_overrides_take_precedence_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Explicit CLI overrides should beat the env-sourced value."""
-    _scrub_env(monkeypatch)
     monkeypatch.setenv("PAGETOMD_TIMEOUT", "5")
     cfg = Config.from_overrides({"url": "https://example.com", "timeout": 12.5})
     assert cfg.timeout == 12.5
 
 
-def test_extra_fields_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extra_fields_rejected() -> None:
     """Unknown fields surface as a ConfigError thanks to ``extra='forbid'``."""
-    _scrub_env(monkeypatch)
     with pytest.raises(ConfigError) as info:
         Config.from_overrides({"url": "https://example.com", "nonsense": True})
     assert "errors" in info.value.context
@@ -99,14 +86,12 @@ def test_validators_reject_invalid_numbers(
     monkeypatch: pytest.MonkeyPatch, field: str, value: float
 ) -> None:
     """Numeric field validators raise via ConfigError for invalid inputs."""
-    _scrub_env(monkeypatch)
     with pytest.raises(ConfigError):
         Config.from_overrides({"url": "https://example.com", field: value})
 
 
-def test_config_instance_is_immutable(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_instance_is_immutable() -> None:
     """Frozen models reject attribute mutation."""
-    _scrub_env(monkeypatch)
     cfg = Config.from_overrides({"url": "https://example.com"})
     with pytest.raises(ValidationError):
         cfg.timeout = 1.0  # type: ignore[misc]
@@ -125,14 +110,12 @@ def test_literal_fields_reject_invalid_values(
     monkeypatch: pytest.MonkeyPatch, field: str, value: str
 ) -> None:
     """Literal fields reject any value outside their declared set."""
-    _scrub_env(monkeypatch)
     with pytest.raises(ConfigError):
         Config.from_overrides({"url": "https://example.com", field: value})
 
 
-def test_output_accepts_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_output_accepts_path() -> None:
     """The output field coerces strings to pathlib.Path."""
-    _scrub_env(monkeypatch)
     cfg = Config.from_overrides({"url": "https://example.com", "output": "out.md"})
     assert cfg.output == pathlib.Path("out.md")
 
@@ -145,44 +128,24 @@ def _assert_user_agent_error(exc: ConfigError) -> None:
     assert any("user_agent" in err["loc"] for err in errors), errors
 
 
-def test_user_agent_valid_value_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_user_agent_valid_value_accepted() -> None:
     """A clean single-line User-Agent should pass validation unchanged."""
-    _scrub_env(monkeypatch)
     ua = "pagetomd/0.1 (+https://example.com)"
     cfg = Config.from_overrides({"url": "https://example.com", "user_agent": ua})
     assert cfg.user_agent == ua
 
 
-def test_user_agent_rejects_cr(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A carriage return in the User-Agent must surface as ConfigError."""
-    _scrub_env(monkeypatch)
+@pytest.mark.parametrize("bad_char", ["\r", "\n", "\x00"])
+def test_user_agent_rejects_control_characters(bad_char: str) -> None:
+    """CR, LF, and NUL in the User-Agent must surface as ConfigError."""
     with pytest.raises(ConfigError) as info:
-        Config.from_overrides({"url": "https://example.com", "user_agent": "foo\rbar"})
-    _assert_user_agent_error(info.value)
-
-
-def test_user_agent_rejects_lf(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A line feed in the User-Agent must surface as ConfigError."""
-    _scrub_env(monkeypatch)
-    with pytest.raises(ConfigError) as info:
-        Config.from_overrides({"url": "https://example.com", "user_agent": "foo\nbar"})
-    _assert_user_agent_error(info.value)
-
-
-def test_user_agent_rejects_nul(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A NUL byte in the User-Agent must surface as ConfigError."""
-    _scrub_env(monkeypatch)
-    with pytest.raises(ConfigError) as info:
-        Config.from_overrides({"url": "https://example.com", "user_agent": "foo\x00bar"})
+        Config.from_overrides({"url": "https://example.com", "user_agent": f"foo{bad_char}bar"})
     _assert_user_agent_error(info.value)
 
 
 @pytest.mark.parametrize("value", ["", "   "])
-def test_user_agent_rejects_empty_and_whitespace(
-    monkeypatch: pytest.MonkeyPatch, value: str
-) -> None:
+def test_user_agent_rejects_empty_and_whitespace(value: str) -> None:
     """Empty or whitespace-only User-Agent strings must surface as ConfigError."""
-    _scrub_env(monkeypatch)
     with pytest.raises(ConfigError) as info:
         Config.from_overrides({"url": "https://example.com", "user_agent": value})
     _assert_user_agent_error(info.value)

@@ -21,7 +21,7 @@
   
   ## What we measured before changing anything
   
-  Before writing a single line of replacement code, we instrumented the existing pipeline. The headline finding was that we spent more time waiting on the Python interpreter to import packages than we did actually doing work. A representative build spent forty-one percent of its wall-clock time inside `importlib`, twenty-three percent inside subprocess overhead spawning helper binaries, and only the remaining thirty-six percent doing genuinely useful work like compilation and linking.
+  Before writing a single line of replacement code, we instrumented the existing pipeline. The headline finding was that we spent more time waiting on the Python interpreter to import packages than we did actually doing work. A representative build spent forty-one percent of its wall-clock time inside`importlib`, twenty-three percent inside subprocess overhead spawning helper binaries, and only the remaining thirty-six percent doing genuinely useful work like compilation and linking.
   
   That ratio was the smoking gun. No amount of incremental tuning was going to recover those two-thirds of wasted time without a fundamentally different architecture. We needed a single long-lived process that could hold the dependency graph in memory, fan out work to a pool of threads, and avoid the per-task interpreter startup penalty entirely.
   
@@ -60,7 +60,7 @@
   
   ## Python
   
-  Python's reference semantics make this the simplest of the five. The only thing to watch is that we rebind `node` on each iteration rather than mutating it in place.
+  Python's reference semantics make this the simplest of the five. The only thing to watch is that we rebind`node`on each iteration rather than mutating it in place.
   
   ```python
   def reverse(head):
@@ -94,7 +94,7 @@
   
   ## Rust
   
-  Rust forces the question of ownership to the surface. The clean version uses `Option::take` to move the tail out without leaving a stale reference behind, which is exactly the move the borrow checker is designed to police.
+  Rust forces the question of ownership to the surface. The clean version uses`Option::take`to move the tail out without leaving a stale reference behind, which is exactly the move the borrow checker is designed to police.
   
   ```rust
   fn reverse(mut head: Option<Box<Node>>) -> Option<Box<Node>> {
@@ -166,23 +166,23 @@
   
   # Configuration Reference
   
-  Pagetomd reads configuration from three sources, applied in order: built-in defaults, environment variables prefixed with `PAGETOMD_`, and command-line flags. Later sources override earlier ones. This page documents every supported field, its type, its default value, and how to set it from each source.
+  Pagetomd reads configuration from three sources, applied in order: built-in defaults, environment variables prefixed with`PAGETOMD_`, and command-line flags. Later sources override earlier ones. This page documents every supported field, its type, its default value, and how to set it from each source.
   
   ## Network configuration
   
-  Network options control how pagetomd talks to the origin server. They apply to the default `httpx` fetcher and, where meaningful, to the optional Playwright backend.
+  Network options control how pagetomd talks to the origin server. They apply to the default`httpx`fetcher and, where meaningful, to the optional Playwright backend.
   
   ### timeout
   
-  Maximum number of seconds to wait for any single HTTP request before giving up. Must be strictly positive. Applies to both the initial `GET` and to `robots.txt` lookups, although the latter is additionally capped at five seconds regardless of this value.
+  Maximum number of seconds to wait for any single HTTP request before giving up. Must be strictly positive. Applies to both the initial`GET`and to`robots.txt`lookups, although the latter is additionally capped at five seconds regardless of this value.
   
   #### Setting from the CLI
   
-  Use the `--timeout` flag, e.g. `pagetomd --timeout 5 https://example.com`.
+  Use the`--timeout`flag, e.g.`pagetomd --timeout 5 https://example.com`.
   
   #### Setting from the environment
   
-  Export `PAGETOMD_TIMEOUT` in your shell:
+  Export`PAGETOMD_TIMEOUT`in your shell:
   
   ```bash
   export PAGETOMD_TIMEOUT=5
@@ -210,7 +210,7 @@
   
   ### wide_tables
   
-  Strategy for rendering tables wider than the GFM threshold. Accepts one of three string values: `kv`, `html`, or `drop`. The default is `kv`.
+  Strategy for rendering tables wider than the GFM threshold. Accepts one of three string values:`kv`,`html`, or`drop`. The default is`kv`.
   
   | Value | Behaviour | When to use |
   | --- | --- | --- |
@@ -238,7 +238,7 @@
   
   ## Environment variables
   
-  Every `Config` field can be set from an environment variable prefixed with `PAGETOMD_`. Boolean fields accept `true`, `false`, `1`, `0`, `yes`, `no` (case-insensitive). Numeric fields are parsed as floats or integers as appropriate.
+  Every`Config`field can be set from an environment variable prefixed with`PAGETOMD_`. Boolean fields accept`true`,`false`,`1`,`0`,`yes`,`no`(case-insensitive). Numeric fields are parsed as floats or integers as appropriate.
   
   '''
 # ---
@@ -261,7 +261,7 @@
   
   ## Installation
   
-  The recommended way to install `example-project` is from PyPI. It is a pure-Python package with no compiled dependencies and supports Python 3.11 and newer on Linux, macOS, and Windows.
+  The recommended way to install`example-project`is from PyPI. It is a pure-Python package with no compiled dependencies and supports Python 3.11 and newer on Linux, macOS, and Windows.
   
   ```bash
   pip install example-project
@@ -296,7 +296,7 @@
   
   - [x] Add TOML input support alongside YAML.
   - [x] Publish prebuilt wheels for musl Linux.
-  - [ ] Add a `--watch`flag for development workflows.
+  - [ ] Add a`--watch`flag for development workflows.
   - [ ] Native binary builds via PyOxidizer.
   
   ## Contributing
@@ -348,6 +348,40 @@
   
   '''
 # ---
+# name: test_rtl_hebrew
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: מאמר לדוגמה על טקסט לורם איפסום בעברית
+  author: מחבר לדוגמה
+  description: טקסט לדוגמה בעברית לבדיקת קידוד UTF-8 ונורמליזציית NFC והפצת נתוני שפה ב-pagetomd.
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # מאמר לדוגמה על טקסט לורם איפסום בעברית
+  
+  לורם איפסום הוא פשוט טקסט ממלא מקום המשמש בתעשיית הדפוס והסדר הטיפוגרפי. הוא היה הטקסט הממלא מקום הסטנדרטי של התעשייה מאז המאה החמש עשרה, כאשר מדפיס לא ידוע לקח גלופה של אותיות וערבב אותן כדי ליצור ספר דוגמאות. הוא שרד לא רק חמישה מאות שנה, אלא גם עשה את הקפיצה לעיצוב אלקטרוני, ונשאר בעצם ללא שינוי.
+  
+  ## מדוע אנו משתמשים בלורם איפסום
+  
+  ידוע מזמן שקורא יוסח מהתוכן הקריא של דף כאשר הוא מסתכל על הפריסה שלו. הנקודה של שימוש בלורם איפסום היא שיש לו פיזור אותיות רגיל פחות או יותר, בניגוד לשימוש בביטוי כמו כאן יש תוכן, כאן יש תוכן, מה שגורם לו להיראות כאנגלית קריאה.
+  
+  חבילות פרסום שולחניות רבות ועורכי דפי אינטרנט משתמשים כעת בלורם איפסום כטקסט ברירת המחדל שלהם, וחיפוש אחר לורם איפסום יחשוף אתרים רבים שעדיין נמצאים בחיתוליהם. גרסאות שונות התפתחו לאורך השנים, לפעמים במקרה, לפעמים בכוונה.
+  
+  ## היכן ניתן להשיג אותו
+  
+  ישנן גרסאות רבות של קטעי לורם איפסום זמינות, אך הרוב סבלו מאיזשהו שינוי, על ידי הומור מוזרק, או מילים אקראיות שאפילו לא נראות מעט אמינות. אם אתה עומד להשתמש בקטע של לורם איפסום, עליך לוודא שאין דבר מביך מוסתר באמצע הטקסט.
+  
+  כל מחוללי לורם איפסום באינטרנט נוטים לחזור על קטעים מוגדרים מראש לפי הצורך, מה שהופך את זה למחולל האמיתי הראשון באינטרנט. הוא משתמש במילון של למעלה ממאתיים מילים לטיניות, בשילוב עם מספר קטן של מבני משפטים טיפוסיים, כדי לייצר לורם איפסום שנראה סביר.
+  
+  ## סיכום
+  
+  הלורם איפסום שנוצר כך הוא תמיד ללא חזרות, הומור מוזרק, או מילים לא אופייניות. טקסט זה משרת מטרה כפולה בקובץ זה: הוא מספק חומר עברי אמיתי לבדיקת קידוד UTF-8 ונורמליזציית NFC בתוך צינור pagetomd, ובמקביל מאמת שתכונת השפה המוצהרת על אלמנט ה-html מתפשטת כראוי לנתוני הממשק הקדמי בפלט הסופי.
+  
+  '''
+# ---
 # name: test_spa_vue_playwright_extracts
   '''
   ---
@@ -376,11 +410,11 @@
   
   ## Where the abstractions leak
   
-  Reactive primitives leak in three predictable places. First, around asynchronous code — once you `await` inside a reactive context, the dependency-tracking machinery loses track of what you read on the other side of the await. Second, around object identity — replacing an object versus mutating it has subtly different downstream effects in proxy-based systems like Vue 3. Third, around computed values whose dependencies change between runs — a careless conditional read can leave a stale dependency in the tracking graph forever.
+  Reactive primitives leak in three predictable places. First, around asynchronous code — once you`await`inside a reactive context, the dependency-tracking machinery loses track of what you read on the other side of the await. Second, around object identity — replacing an object versus mutating it has subtly different downstream effects in proxy-based systems like Vue 3. Third, around computed values whose dependencies change between runs — a careless conditional read can leave a stale dependency in the tracking graph forever.
   
   ## Practical advice
   
-  Three rules of thumb cover most cases. Keep reactive reads at the top of your effect bodies, before any conditional logic. Prefer immutable updates over in-place mutation unless you have measured that mutation matters for performance. And treat your framework's escape hatches — `untracked`, `peek`, `$state.raw`, whatever yours calls them — as load-bearing API, not as exotic edge cases. The day you need them, you will need them badly.
+  Three rules of thumb cover most cases. Keep reactive reads at the top of your effect bodies, before any conditional logic. Prefer immutable updates over in-place mutation unless you have measured that mutation matters for performance. And treat your framework's escape hatches —`untracked`,`peek`,`$state.raw`, whatever yours calls them — as load-bearing API, not as exotic edge cases. The day you need them, you will need them badly.
   
   '''
 # ---
@@ -398,11 +432,11 @@
   
   # Sample Tables for Wide-Table Rendering Tests
   
-  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three `wide_tables` rendering strategies — `kv`, `html`, and `drop` — against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
+  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three`wide_tables`rendering strategies —`kv`,`html`, and`drop`— against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
   
   ## Narrow table (three columns)
   
-  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every `wide_tables` setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
+  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every`wide_tables`setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
   
   | Fruit | Colour | Calories |
   | --- | --- | --- |
@@ -422,7 +456,7 @@
   
   ## Wide table (eight columns)
   
-  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under `kv` the table should be rendered as a sequence of key-value lists, one per row. Under `html` the original markup should be preserved verbatim. Under `drop` the table should be replaced by a short placeholder noting that a wide table was omitted.
+  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under`kv`the table should be rendered as a sequence of key-value lists, one per row. Under`html`the original markup should be preserved verbatim. Under`drop`the table should be replaced by a short placeholder noting that a wide table was omitted.
   
   <!-- pagetomd: wide table dropped (cols=8) -->
   
@@ -444,11 +478,11 @@
   
   # Sample Tables for Wide-Table Rendering Tests
   
-  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three `wide_tables` rendering strategies — `kv`, `html`, and `drop` — against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
+  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three`wide_tables`rendering strategies —`kv`,`html`, and`drop`— against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
   
   ## Narrow table (three columns)
   
-  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every `wide_tables` setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
+  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every`wide_tables`setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
   
   | Fruit | Colour | Calories |
   | --- | --- | --- |
@@ -468,10 +502,9 @@
   
   ## Wide table (eight columns)
   
-  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under `kv` the table should be rendered as a sequence of key-value lists, one per row. Under `html` the original markup should be preserved verbatim. Under `drop` the table should be replaced by a short placeholder noting that a wide table was omitted.
+  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under`kv`the table should be rendered as a sequence of key-value lists, one per row. Under`html`the original markup should be preserved verbatim. Under`drop`the table should be replaced by a short placeholder noting that a wide table was omitted.
   
-  <table>
-  <tr>
+  <table><tr>
   <th>Date</th>
   <th>Region</th>
   <th>Product</th>
@@ -510,8 +543,7 @@
   <td>$6800</td>
   <td>$4250</td>
   <td>Promo</td>
-  </tr>
-  </table>
+  </tr></table>
   
   The closing paragraph is here primarily so that the article body extends past the final table, which helps trafilatura recognise the table as part of the article rather than as trailing boilerplate. In practice this kind of padding is almost always present in real-world pages, but in synthetic fixtures it has to be added explicitly.
   
@@ -531,11 +563,11 @@
   
   # Sample Tables for Wide-Table Rendering Tests
   
-  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three `wide_tables` rendering strategies — `kv`, `html`, and `drop` — against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
+  This document contains three tables of varying widths. It exists so that the pagetomd snapshot test suite can verify each of the three`wide_tables`rendering strategies —`kv`,`html`, and`drop`— against a single, deterministic input. The narrative around each table is intentionally substantial so that trafilatura's recall heuristics keep the article body intact during extraction. Without enough prose padding, the extractor sometimes discards short bodies as boilerplate, which would defeat the point of these fixtures.
   
   ## Narrow table (three columns)
   
-  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every `wide_tables` setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
+  The first table has three columns and should render as a standard GitHub-flavoured Markdown table under every`wide_tables`setting, because three columns is well below the threshold. This case exists to confirm that the wide-table machinery does not accidentally trigger on narrow inputs.
   
   | Fruit | Colour | Calories |
   | --- | --- | --- |
@@ -555,7 +587,7 @@
   
   ## Wide table (eight columns)
   
-  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under `kv` the table should be rendered as a sequence of key-value lists, one per row. Under `html` the original markup should be preserved verbatim. Under `drop` the table should be replaced by a short placeholder noting that a wide table was omitted.
+  The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under`kv`the table should be rendered as a sequence of key-value lists, one per row. Under`html`the original markup should be preserved verbatim. Under`drop`the table should be replaced by a short placeholder noting that a wide table was omitted.
   
   ### Row 1
   

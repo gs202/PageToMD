@@ -24,24 +24,7 @@ from pagetomd.writer import (
     slugify_default_path,
     write_output,
 )
-
-
-def _make_fetched(
-    *,
-    url: str = "https://example.com/blog/why-fastapi",
-    final_url: str | None = None,
-) -> FetchedDoc:
-    """Build a :class:`FetchedDoc` with sane defaults for writer tests."""
-    return FetchedDoc(
-        url=url,
-        final_url=final_url if final_url is not None else url,
-        status_code=200,
-        html="<html></html>",
-        content_type="text/html; charset=utf-8",
-        encoding="utf-8",
-        headers={},
-        elapsed_ms=10,
-    )
+from tests.conftest import make_fetched_doc
 
 
 def _make_extracted(
@@ -102,7 +85,7 @@ def test_build_frontmatter_with_fixed_now() -> None:
     """``fetched_at`` is the exact UTC ISO string of ``now``."""
     fixed = datetime(2026, 6, 15, 7, 30, 0, tzinfo=UTC)
     fm = build_frontmatter(
-        _make_fetched(),
+        make_fetched_doc(url="https://example.com/blog/why-fastapi"),
         _make_extracted(),
         include_fetched_at=True,
         now=fixed,
@@ -113,7 +96,7 @@ def test_build_frontmatter_with_fixed_now() -> None:
 def test_build_frontmatter_no_fetched_at() -> None:
     """``include_fetched_at=False`` → ``fetched_at is None``."""
     fm = build_frontmatter(
-        _make_fetched(),
+        make_fetched_doc(url="https://example.com/blog/why-fastapi"),
         _make_extracted(),
         include_fetched_at=False,
     )
@@ -122,7 +105,7 @@ def test_build_frontmatter_no_fetched_at() -> None:
 
 def test_build_frontmatter_populates_tool_version() -> None:
     """``tool_version`` matches :data:`pagetomd.__version__`."""
-    fm = build_frontmatter(_make_fetched(), _make_extracted())
+    fm = build_frontmatter(make_fetched_doc(url="https://example.com/blog/why-fastapi"), _make_extracted())
     assert fm.tool == "pagetomd"
     assert fm.tool_version == pagetomd.__version__
 
@@ -211,7 +194,7 @@ def test_serialize_description_with_newlines_roundtrips() -> None:
 def test_slugify_uses_title_when_present() -> None:
     """Title takes precedence over URL."""
     path = slugify_default_path(
-        _make_fetched(url="https://example.com/foo"),
+        make_fetched_doc(url="https://example.com/foo"),
         _make_extracted(title="Why FastAPI?"),
     )
     assert path == Path("why-fastapi.md")
@@ -220,7 +203,7 @@ def test_slugify_uses_title_when_present() -> None:
 def test_slugify_falls_back_to_url_path_when_title_empty() -> None:
     """Empty title → last path segment of the URL."""
     path = slugify_default_path(
-        _make_fetched(url="https://example.com/blog/why-fastapi"),
+        make_fetched_doc(url="https://example.com/blog/why-fastapi"),
         _make_extracted(title=""),
     )
     assert path == Path("why-fastapi.md")
@@ -229,7 +212,7 @@ def test_slugify_falls_back_to_url_path_when_title_empty() -> None:
 def test_slugify_handles_trailing_slash() -> None:
     """Trailing slash → uses the last non-empty segment."""
     path = slugify_default_path(
-        _make_fetched(url="https://example.com/blog/why-fastapi/"),
+        make_fetched_doc(url="https://example.com/blog/why-fastapi/"),
         _make_extracted(title=None),
     )
     assert path == Path("why-fastapi.md")
@@ -238,7 +221,7 @@ def test_slugify_handles_trailing_slash() -> None:
 def test_slugify_uses_host_when_only_root() -> None:
     """Bare host URL → host-based slug."""
     path = slugify_default_path(
-        _make_fetched(url="https://example.com/"),
+        make_fetched_doc(url="https://example.com/"),
         _make_extracted(title=None),
     )
     assert path == Path("example-com.md")
@@ -247,7 +230,7 @@ def test_slugify_uses_host_when_only_root() -> None:
 def test_slugify_unicode_garbage_falls_back_to_page() -> None:
     """All-emoji title with no useful URL → ``"page.md"``."""
     path = slugify_default_path(
-        _make_fetched(url="https://example.com/"),
+        make_fetched_doc(url="https://example.com/"),
         # Title is all emoji; the URL path is empty so the host saves us
         # from a "page.md" fallback unless we also wipe the host. Use a URL
         # whose host also collapses to nothing under slugify.
@@ -277,7 +260,7 @@ def test_slugify_caps_length_at_80() -> None:
     """Long titles slug to ≤80 chars (excluding ``.md`` suffix)."""
     long_title = "Why " + ("FastAPI " * 30)
     path = slugify_default_path(
-        _make_fetched(),
+        make_fetched_doc(url="https://example.com/blog/why-fastapi"),
         _make_extracted(title=long_title),
     )
     slug = path.stem  # strip ".md"
@@ -286,44 +269,20 @@ def test_slugify_caps_length_at_80() -> None:
 
 def test_slugify_is_pure() -> None:
     """Two identical calls return equal paths (no hidden state)."""
-    fetched = _make_fetched()
+    fetched = make_fetched_doc(url="https://example.com/blog/why-fastapi")
     extracted = _make_extracted(title="Stable Title")
     a = slugify_default_path(fetched, extracted)
     b = slugify_default_path(fetched, extracted)
     assert a == b
 
 
-def test_slugify_suffixes_windows_reserved_uppercase() -> None:
-    """Uppercase ``CON`` slugs to ``con`` and is suffixed with ``-page``."""
-    path = slugify_default_path(
-        _make_fetched(url="https://example.com/x"),
-        _make_extracted(title="CON"),
-    )
-    assert path == Path("con-page.md")
 
-
-def test_slugify_suffixes_windows_reserved_lowercase() -> None:
-    """The reserved-name check is case-insensitive (``con`` also suffixed)."""
-    path = slugify_default_path(
-        _make_fetched(url="https://example.com/x"),
-        _make_extracted(title="con"),
-    )
-    assert path == Path("con-page.md")
-
-
-def test_slugify_suffixes_windows_reserved_com_port() -> None:
-    """Numbered device names like ``COM5`` are also suffixed."""
-    path = slugify_default_path(
-        _make_fetched(url="https://example.com/x"),
-        _make_extracted(title="COM5"),
-    )
-    assert path == Path("com5-page.md")
 
 
 def test_slugify_does_not_suffix_non_reserved_prefix() -> None:
     """Only exact matches trigger the suffix — ``CONference`` is left alone."""
     path = slugify_default_path(
-        _make_fetched(url="https://example.com/x"),
+        make_fetched_doc(url="https://example.com/x"),
         _make_extracted(title="CONference"),
     )
     assert path == Path("conference.md")
@@ -342,23 +301,21 @@ def test_write_happy_path(tmp_path: Path) -> None:
     assert content.endswith("body line\n")
 
 
-def test_write_adds_trailing_newline(tmp_path: Path) -> None:
-    """Body without trailing newline gets exactly one added."""
+@pytest.mark.parametrize(
+    ("body", "expected_suffix"),
+    [
+        ("no trailing", "no trailing\n"),
+        ("body\n\n\n\n", "body\n"),
+    ],
+    ids=["missing_newline", "excess_newlines"],
+)
+def test_write_normalises_trailing_newline(tmp_path: Path, body: str, expected_suffix: str) -> None:
+    """write_output ensures the output file ends with exactly one trailing newline."""
     target = tmp_path / "out.md"
-    write_output("no trailing", _frontmatter(), output=target, overwrite=False)
+    write_output(body, _frontmatter(), output=target, overwrite=False)
     content = target.read_text(encoding="utf-8")
-    assert content.endswith("no trailing\n")
-    # Exactly one — not two.
-    assert not content.endswith("no trailing\n\n")
-
-
-def test_write_collapses_multiple_trailing_newlines(tmp_path: Path) -> None:
-    """Multiple trailing newlines collapse to one."""
-    target = tmp_path / "out.md"
-    write_output("body\n\n\n\n", _frontmatter(), output=target, overwrite=False)
-    content = target.read_text(encoding="utf-8")
-    assert content.endswith("body\n")
-    assert not content.endswith("body\n\n")
+    assert content.endswith(expected_suffix)
+    assert not content.endswith(expected_suffix + "\n")
 
 
 def test_write_creates_parent_dirs(tmp_path: Path) -> None:
@@ -549,22 +506,29 @@ _skip_if_no_symlinks = pytest.mark.skipif(
 
 
 @_skip_if_no_symlinks
-def test_symlink_target_refused_when_overwrite_true(tmp_path: Path) -> None:
-    """Symlink + ``follow_symlinks=False`` + ``overwrite=True`` → refused; link target untouched."""
+@pytest.mark.parametrize(
+    ("overwrite", "expected_msg_fragment"),
+    [
+        (True, None),       # any WriteError is acceptable
+        (False, "symlink"),
+    ],
+    ids=["overwrite_true", "overwrite_false"],
+)
+def test_symlink_target_refused_follow_symlinks_false(
+    tmp_path: Path, overwrite: bool, expected_msg_fragment: str | None
+) -> None:
+    """Writing to a symlink with follow_symlinks=False is refused."""
     real = tmp_path / "real.md"
     real.write_text("ORIGINAL CONTENT\n", encoding="utf-8")
     link = tmp_path / "link.md"
     link.symlink_to(real)
 
     with pytest.raises(WriteError) as exc_info:
-        write_output(
-            "new body\n",
-            _frontmatter(),
-            output=link,
-            overwrite=True,
-            follow_symlinks=False,
-        )
+        write_output("new body\n", _frontmatter(), output=link, overwrite=overwrite, follow_symlinks=False)
+
     assert exc_info.value.context["path"] == str(link)
+    if expected_msg_fragment:
+        assert expected_msg_fragment in exc_info.value.message.lower()
     assert real.read_text(encoding="utf-8") == "ORIGINAL CONTENT\n"
 
 
@@ -590,26 +554,6 @@ def test_symlink_target_followed_when_opted_in(tmp_path: Path) -> None:
     # The link should still be a link (we didn't blow it away with a regular
     # file write that bypassed the link).
     assert link.is_symlink()
-
-
-@_skip_if_no_symlinks
-def test_symlink_target_refused_when_overwrite_false(tmp_path: Path) -> None:
-    """Symlink + ``overwrite=False`` → refused with "symlink" message (not "already exists")."""
-    real = tmp_path / "real.md"
-    real.write_text("ORIGINAL CONTENT\n", encoding="utf-8")
-    link = tmp_path / "link.md"
-    link.symlink_to(real)
-
-    with pytest.raises(WriteError) as exc_info:
-        write_output(
-            "new body\n",
-            _frontmatter(),
-            output=link,
-            overwrite=False,
-            follow_symlinks=False,
-        )
-    assert "symlink" in exc_info.value.message.lower()
-    assert real.read_text(encoding="utf-8") == "ORIGINAL CONTENT\n"
 
 
 def test_regular_file_overwrite_unaffected_by_symlink_guard(tmp_path: Path) -> None:

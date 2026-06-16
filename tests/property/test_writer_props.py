@@ -5,25 +5,14 @@ from __future__ import annotations
 from urllib.parse import quote
 
 import hypothesis.strategies as st
+import pytest
 from hypothesis import given, settings
 
 from pagetomd.extractor import ExtractedDoc
-from pagetomd.fetcher import FetchedDoc
 from pagetomd.writer import slugify_default_path
+from tests.conftest import make_fetched_doc
 
-
-def _fetched(url: str) -> FetchedDoc:
-    """Minimal :class:`FetchedDoc` carrying just the URL fields the slugger reads."""
-    return FetchedDoc(
-        url=url,
-        final_url=url,
-        status_code=200,
-        html="",
-        content_type="text/html",
-        encoding="utf-8",
-        headers={},
-        elapsed_ms=0,
-    )
+pytestmark = pytest.mark.property
 
 
 def _extracted(title: str | None) -> ExtractedDoc:
@@ -68,7 +57,7 @@ _URL_PATHS = st.text(
 @settings(max_examples=200, deadline=2000)
 def test_slug_never_escapes_cwd(title: str, url: str) -> None:
     """No matter the title or URL, the slug stays a single CWD-relative segment."""
-    result = slugify_default_path(_fetched(url), _extracted(title))
+    result = slugify_default_path(make_fetched_doc(url=url), _extracted(title))
     name = result.name
     # No embedded path separators of either flavour.
     assert "/" not in name
@@ -89,7 +78,7 @@ def test_slug_never_escapes_cwd(title: str, url: str) -> None:
 )
 def test_windows_reserved_stems_are_suffixed(reserved: str) -> None:
     """Windows reserved device names are appended with ``-page`` to avoid OS collision."""
-    result = slugify_default_path(_fetched("https://x"), _extracted(reserved))
+    result = slugify_default_path(make_fetched_doc(url="https://x"), _extracted(reserved))
     stem = result.name.removesuffix(".md")
     forbidden_stems = (
         {"con", "prn", "aux", "nul"}

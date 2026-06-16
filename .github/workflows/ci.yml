@@ -31,14 +31,19 @@ jobs:
       - name: Run pre-commit
         run: uv run pre-commit run --all-files
 
-  test:
-    name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
+  # ---------------------------------------------------------------------------
+  # Test jobs — each test category runs on its own runner for maximum
+  # parallelism. Coverage data is uploaded as artifacts and combined in the
+  # ``coverage`` job below.
+  # ---------------------------------------------------------------------------
+
+  test-unit:
+    name: Unit (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.13"]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
         with:
@@ -46,19 +51,125 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
       - name: Install uv
         uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
       - name: Install dependencies
         run: uv sync --extra dev
-      - name: Run tests
+      - name: Run unit tests
+        run: uv run pytest -m "unit and not playwright" --cov --cov-report=
+      - name: Upload coverage data
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: coverage-unit
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: error
+
+  test-integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run integration tests
+        run: uv run pytest -m "integration and not playwright" --cov --cov-report=
+      - name: Upload coverage data
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: coverage-integration
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: error
+
+  test-property:
+    name: Property
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run property-based tests
+        run: uv run pytest -m property --cov --cov-report=
+      - name: Upload coverage data
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: coverage-property
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: error
+
+  test-snapshot:
+    name: Snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run snapshot tests
         # ``--snapshot-details`` fails on stale snapshots.
-        # ``--cov`` triggers both the project-wide 85% gate and the per-module
-        # 90% gate in ``tests/conftest.py::pytest_sessionfinish``.
-        run: uv run pytest --cov --snapshot-details
+        run: uv run pytest -m "snapshot and not playwright" --snapshot-details --cov --cov-report=
+      - name: Upload coverage data
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: coverage-snapshot
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: error
+
+  test-packaging:
+    name: Packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run packaging tests
+        run: uv run pytest -m packaging --cov --cov-report=
+      - name: Upload coverage data
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: coverage-packaging
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: error
 
   test-playwright:
-    name: Test (Playwright extras)
+    name: Playwright
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
@@ -79,7 +190,87 @@ jobs:
       - name: Run Playwright-marked tests
         # ``-o asyncio_mode=strict`` avoids the session event loop that
         # trips Playwright's sync-API guard.
-        run: uv run pytest -m playwright -v -o asyncio_mode=strict
+        run: uv run pytest -m playwright -v -o asyncio_mode=strict --cov --cov-report=
+      - name: Upload coverage data
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: coverage-playwright
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Coverage — combine data from all test jobs and enforce thresholds.
+  # ---------------------------------------------------------------------------
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    needs:
+      - test-unit
+      - test-integration
+      - test-property
+      - test-snapshot
+      - test-packaging
+      - test-playwright
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          pattern: coverage-*
+          merge-multiple: false
+      - name: Combine coverage data
+        run: |
+          # Each artifact is downloaded into its own directory. Move the
+          # .coverage files into the workspace root with unique names so
+          # ``coverage combine`` can merge them.
+          i=0
+          for f in coverage-*/.coverage; do
+            cp "$f" ".coverage.$i"
+            i=$((i + 1))
+          done
+          uv run coverage combine
+      - name: Coverage report
+        # Display the combined report and enforce the global ``fail_under``
+        # threshold configured in pyproject.toml.
+        run: uv run coverage report
+      - name: Per-module coverage gate
+        # Enforce the per-module ≥90% gate against the combined data,
+        # reusing the threshold map from tests/conftest.py.
+        run: |
+          uv run python - <<'PYEOF'
+          import sys
+          sys.path.insert(0, ".")
+          from tests.conftest import _module_combined_coverage, _CRITICAL_MODULE_COVERAGE_THRESHOLDS
+          import coverage as cov_mod
+          cov = cov_mod.Coverage(data_file=".coverage")
+          cov.load()
+          ok = True
+          for mod, threshold in _CRITICAL_MODULE_COVERAGE_THRESHOLDS.items():
+              pct = _module_combined_coverage(cov, mod)
+              if pct is None:
+                  print(f"FAIL  {mod}: no coverage data")
+                  ok = False
+              elif pct < threshold:
+                  print(f"FAIL  {mod}: {pct:.1f}% < {threshold:.0f}%")
+                  ok = False
+              else:
+                  print(f"OK    {mod}: {pct:.1f}% >= {threshold:.0f}%")
+          if not ok:
+              sys.exit(1)
+          print("All per-module coverage gates passed.")
+          PYEOF
 
   markdownlint:
     name: Markdownlint (fixture output)

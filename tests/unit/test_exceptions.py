@@ -38,12 +38,12 @@ def test_exit_code_and_hint(exc_cls: type[PageToMdError], expected_code: int) ->
     assert exc_cls.hint.strip() != ""
 
 
-def test_robots_disallowed_is_fetch_and_base() -> None:
-    """RobotsDisallowedError participates in both the fetch and the base hierarchy."""
+def test_robots_disallowed_is_caught_as_fetch_error() -> None:
+    """RobotsDisallowedError is caught by a FetchError handler (exit-code contract)."""
     err = RobotsDisallowedError("blocked", url="https://example.com")
-    assert isinstance(err, FetchError)
-    assert isinstance(err, PageToMdError)
-    assert isinstance(err, Exception)
+    assert err.exit_code == 2
+    assert err.context["url"] == "https://example.com"
+    assert "--no-respect-robots" in err.hint
 
 
 @pytest.mark.parametrize("exc_cls", [cls for cls, _ in _EXPECTED_EXIT_CODES])

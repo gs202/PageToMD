@@ -101,7 +101,9 @@ def postprocess(markdown: str, *, base_url: str, title: str | None = None) -> st
     try:
         text = unicodedata.normalize("NFC", markdown)
         text = text.translate(_ZERO_WIDTH_TABLE)
-        lines = text.splitlines()
+        # Normalise CRLF to LF first so we can split on \n safely
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        lines = text.split("\n")
         text = "\n".join(line.rstrip() for line in lines)
         text = _MULTI_BLANK_RE.sub("\n\n", text)
 

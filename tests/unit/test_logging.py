@@ -60,12 +60,16 @@ def test_filtering_suppresses_debug_when_level_is_warning(
     assert "visible" in captured.err
 
 
+from structlog.testing import capture_logs
+
 def test_get_logger_returns_bound_logger() -> None:
-    """get_logger should hand back a usable structlog bound logger."""
+    """get_logger returns a structlog BoundLogger that carries bound context."""
     configure_logging("info")
     log = get_logger("named")
     bound = log.bind(request_id="abc")
-    assert bound is not None
+    with capture_logs() as cap:
+        bound.info("event")
+    assert cap[0]["request_id"] == "abc"
 
 
 def test_configure_logging_sets_root_level() -> None:

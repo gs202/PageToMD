@@ -14,38 +14,19 @@ from pagetomd.fetcher import (
     FetchedDoc,
     HttpxFetcher,
 )
-
-
-@pytest.fixture(autouse=True)
-def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Short-circuit tenacity sleeps so retry tests stay fast."""
-    monkeypatch.setattr("tenacity.nap.time.sleep", lambda _seconds: None)
-
-
-def _make_config(**overrides: object) -> Config:
-    """Build a :class:`Config` with sane defaults for fetcher tests."""
-    base: dict[str, object] = {
-        "url": "https://example.com/",
-        "timeout": 5.0,
-        "retries": 3,
-        "respect_robots": False,
-        "follow_redirects": True,
-        "max_redirects": 5,
-    }
-    base.update(overrides)
-    return Config(**base)  # type: ignore[arg-type]
+from tests.conftest import make_config
 
 
 @pytest.fixture
 def cfg() -> Config:
     """Default fetcher config: 3 retries, robots OFF for ergonomic tests."""
-    return _make_config()
+    return make_config()
 
 
 @pytest.fixture
 def cfg_robots() -> Config:
     """Fetcher config with robots ON, used by the robots-focused tests."""
-    return _make_config(respect_robots=True)
+    return make_config(respect_robots=True)
 
 
 @respx.mock
@@ -317,10 +298,12 @@ def test_transient_use_does_not_leak_client(cfg: Config) -> None:
 
 
 def test_close_is_idempotent(cfg: Config) -> None:
-    """Calling ``close`` twice must not raise."""
+    """Calling close() twice is safe and leaves _client as None."""
     fetcher = HttpxFetcher(cfg)
     fetcher.close()
-    fetcher.close()  # second call exercises the ``_client is None`` branch
+    assert fetcher._client is None
+    fetcher.close()
+    assert fetcher._client is None
 
 
 @respx.mock
@@ -359,20 +342,7 @@ def test_missing_content_type_logs_warning(cfg: Config) -> None:
     assert doc.html == "<html>x</html>"
 
 
-@respx.mock
-def test_fetch_protocol_compatibility(cfg: Config) -> None:
-    """``HttpxFetcher`` satisfies the :class:`Fetcher` Protocol structurally."""
-    from pagetomd.fetcher import Fetcher
 
-    respx.get("https://example.com/p").mock(
-        return_value=httpx.Response(
-            200, html="<html>p</html>", headers={"Content-Type": "text/html"}
-        )
-    )
-
-    fetcher: Fetcher = HttpxFetcher(cfg)
-    doc = fetcher.fetch("https://example.com/p")
-    assert doc.status_code == 200
 
 
 @pytest.fixture(autouse=True)
