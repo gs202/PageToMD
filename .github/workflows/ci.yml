@@ -17,7 +17,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run pre-commit
@@ -45,7 +45,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -53,7 +53,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run unit tests
@@ -71,7 +71,7 @@ jobs:
     name: Integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -79,7 +79,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run integration tests
@@ -96,7 +96,7 @@ jobs:
     name: Property
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -104,7 +104,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run property-based tests
@@ -121,7 +121,7 @@ jobs:
     name: Snapshot
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -129,7 +129,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run snapshot tests
@@ -147,7 +147,7 @@ jobs:
     name: Packaging
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -155,7 +155,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run packaging tests
@@ -172,7 +172,7 @@ jobs:
     name: Playwright
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -180,7 +180,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install dependencies (incl. Playwright extra)
         run: uv sync --extra dev --extra playwright
       - name: Install Chromium for Playwright
@@ -214,7 +214,7 @@ jobs:
       - test-packaging
       - test-playwright
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -222,7 +222,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Download all coverage artifacts
@@ -276,7 +276,7 @@ jobs:
     name: Markdownlint (fixture output)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Set up Python
@@ -288,7 +288,7 @@ jobs:
         with:
           node-version: "20"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install Python dependencies
         run: uv sync --extra dev
       - name: Render fixture corpus to Markdown
@@ -302,13 +302,13 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Set up Python
         uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c  # v5.0.0
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@b5f58b2abc4c1f10e7e24811bc5e63770aafd2e3  # v3.2.4
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install project dependencies
         run: uv sync
       - name: Run pip-audit
