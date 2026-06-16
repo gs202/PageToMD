@@ -188,16 +188,16 @@ def test_bypass_env_var_only_literal_one(monkeypatch: pytest.MonkeyPatch) -> Non
     [
         ("https://example.com/path?q=1#f", "https://example.com/path?q=1#f"),
         ("https://alice@example.com/x", "https://example.com/x"),
-        (  # pragma: allowlist secret
-            "https://alice:secret@example.com/x",
+        (
+            "https://alice:secret@example.com/x",  # pragma: allowlist secret
             "https://example.com/x",
         ),
-        (  # pragma: allowlist secret
-            "https://alice:secret@example.com:8443/x",
+        (
+            "https://alice:secret@example.com:8443/x",  # pragma: allowlist secret
             "https://example.com:8443/x",
         ),
-        (  # pragma: allowlist secret
-            "http://alice:secret@[2606:4700::1]:8080/x",
+        (
+            "http://alice:secret@[2606:4700::1]:8080/x",  # pragma: allowlist secret
             "http://[2606:4700::1]:8080/x",
         ),
         ("not a url", "not a url"),
