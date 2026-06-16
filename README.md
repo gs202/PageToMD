@@ -188,4 +188,4 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contributor workflow.
 
 ## License
 
-Business Source License 1.1 — free for non-commercial use. Converts to MIT on 2030-06-16. See [LICENSE](LICENSE) for full terms.
+Business Source License 1.1 — source-available, free for non-commercial use. Converts to MIT on 2030-06-16. See [LICENSE](LICENSE) for full terms.

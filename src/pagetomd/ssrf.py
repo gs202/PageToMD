@@ -87,19 +87,23 @@ def _is_private_address(addr: str) -> bool:
     )
 
 
-def guard_url(url: str) -> None:
+def guard_url(url: str) -> str | None:
     """Refuse to fetch ``url`` when it targets any private / metadata address.
 
     Checks metadata hostnames, IP literals, and all DNS-resolved addresses.
     Raises :class:`FetchError` when the target is non-public.
+
+    Returns:
+        The validated IP address (or original host if it's an IP literal),
+        or ``None`` if the bypass is active or the URL has no host.
     """
     if os.environ.get(_INTERNAL_BYPASS_ENV) == "1":
-        return
+        return None
 
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
     if not host:
-        return
+        return None
 
     if host in _METADATA_HOSTS:
         raise FetchError(
@@ -114,16 +118,18 @@ def guard_url(url: str) -> None:
         literal = ipaddress.ip_address(host)
     except ValueError:
         literal = None
-    if literal is not None and _is_private_address(str(literal)):
-        raise FetchError(
-            "Refusing to fetch private/loopback/link-local address",
-            url=redact_url(url),
-            host=host,
-        )
+    if literal is not None:
+        if _is_private_address(str(literal)):
+            raise FetchError(
+                "Refusing to fetch private/loopback/link-local address",
+                url=redact_url(url),
+                host=host,
+            )
+        return str(literal)
 
     addrs = _resolve_addresses(host, port)
     if not addrs:
-        return
+        return None
 
     for addr in addrs:
         if _is_private_address(addr):
@@ -133,3 +139,5 @@ def guard_url(url: str) -> None:
                 host=host,
                 resolved=addr,
             )
+
+    return addrs[0]
