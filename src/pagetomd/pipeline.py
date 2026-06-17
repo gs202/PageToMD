@@ -118,9 +118,6 @@ def run(config: Config, *, fetcher: Fetcher | None = None) -> PipelineResult:
             output=_describe_target(target),
         )
 
-        if not config.verify_ssl:
-            log.warning("pipeline.ssl_verification_disabled")
-
         if fetcher is not None:
             # Caller owns the lifecycle — just use it.
             return _run_with_fetcher(config, fetcher, start_s, log)
@@ -323,7 +320,7 @@ class _AutoFetcher:
         doc = self._httpx.fetch(url)
         if not _should_fallback_to_playwright(doc.html):
             return doc
-        self._log.info(
+        self._log.debug(
             "fetch.auto.fallback",
             url=redact_url(url),
             reason="spa_shell_detected",

@@ -382,7 +382,7 @@ def _safe_extract_metadata(html: str, bound: object) -> object | None:
     try:
         return trafilatura.extract_metadata(html)
     except Exception as exc:  # pragma: no cover - safety net, exercised via mock
-        _log.warning("extract.metadata_failed", error=str(exc), exc_info=True)
+        _log.error("extract.metadata_failed", error=str(exc), exc_info=True)
         return None
 
 

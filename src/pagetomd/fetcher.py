@@ -541,7 +541,7 @@ class HttpxFetcher:
     def _warn_if_non_html(content_type: str | None, url: str) -> None:
         """Emit a warning when the body is unlikely to be HTML/XML."""
         if not content_type:
-            _log.warning("fetch.no_content_type", url=redact_url(url))
+            _log.debug("fetch.no_content_type", url=redact_url(url))
             return
         ct = content_type.lower()
         if "html" not in ct and "xml" not in ct:
@@ -574,7 +574,7 @@ def _make_retry_logger(url: str) -> Callable[[RetryCallState], None]:
         error: str | None = None
         if outcome is not None and outcome.failed:
             error = repr(outcome.exception())
-        _log.warning(
+        _log.debug(
             "fetch.retry",
             url=redact_url(url),
             attempt=retry_state.attempt_number,
