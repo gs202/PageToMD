@@ -61,7 +61,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run unit tests
-        run: uv run pytest -m "unit and not playwright" --cov --cov-report=
+        run: uv run pytest -m "unit and not playwright" -n auto --dist=loadscope --cov --cov-report=
       - name: Upload coverage data
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -87,7 +87,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run integration tests
-        run: uv run pytest -m "integration and not playwright" --cov --cov-report=
+        run: uv run pytest -m "integration and not playwright" -n auto --dist=loadscope --cov --cov-report=
       - name: Upload coverage data
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -112,7 +112,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run property-based tests
-        run: uv run pytest -m property --cov --cov-report=
+        run: uv run pytest -m property -n auto --dist=loadscope --cov --cov-report=
       - name: Upload coverage data
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -138,7 +138,7 @@ jobs:
         run: uv sync --extra dev
       - name: Run snapshot tests
         # ``--snapshot-details`` fails on stale snapshots.
-        run: uv run pytest -m "snapshot and not playwright" --snapshot-details --cov --cov-report=
+        run: uv run pytest -m "snapshot and not playwright" -n auto --dist=loadscope --snapshot-details --cov --cov-report=
       - name: Upload coverage data
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -163,7 +163,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run packaging tests
-        run: uv run pytest -m packaging --cov --cov-report=
+        run: uv run pytest -m packaging -n auto --dist=loadscope --cov --cov-report=
       - name: Upload coverage data
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -192,7 +192,7 @@ jobs:
         # needs to run headless under Ubuntu's minimal container image.
         run: uv run playwright install chromium --with-deps
       - name: Run Playwright-marked tests
-        run: uv run pytest -m playwright -v --cov --cov-report=
+        run: uv run pytest -m playwright -v -n auto --dist=loadscope --cov --cov-report=
       - name: Upload coverage data
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
