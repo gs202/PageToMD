@@ -77,7 +77,7 @@ _URL_ATTRS: Final[frozenset[str]] = frozenset({"href", "src", "xlink:href", "for
 _log = get_logger(__name__)
 
 
-class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
+class PagetomdConverter(MarkdownConverter):
     """Markdownify subclass that injects pagetomd's per-tag rules."""
 
     pagetomd_config: Config
@@ -190,7 +190,7 @@ class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
         # the GFM pipe table ourselves from the TEI structure.
         if _is_tei_table(el):
             return self._render_tei_table_as_gfm(el)
-        return super().convert_table(el, text, parent_tags)  # type: ignore[no-any-return]
+        return super().convert_table(el, text, parent_tags)  # type: ignore[no-any-return,misc]
 
     def _render_tei_table_as_gfm(self, table_el: Tag) -> str:
         """Render a TEI ``<table>`` as a GitHub-flavoured pipe table."""
@@ -277,7 +277,7 @@ class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
         if el.parent and el.parent.name == "pre":
             return text
 
-        from markdownify import chomp
+        from markdownify import chomp  # type: ignore[attr-defined]
 
         prefix, suffix, text = chomp(text)
         if not text:
@@ -293,13 +293,13 @@ class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
         """Strip images entirely when ``include_images`` is false."""
         if not self.pagetomd_config.include_images:
             return ""
-        return super().convert_img(el, text, parent_tags)  # type: ignore[no-any-return]
+        return super().convert_img(el, text, parent_tags)  # type: ignore[no-any-return,misc]
 
     def convert_a(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """Drop the URL but keep the text when ``include_links`` is false."""
         if not self.pagetomd_config.include_links:
             return text
-        return super().convert_a(el, text, parent_tags)  # type: ignore[no-any-return]
+        return super().convert_a(el, text, parent_tags)  # type: ignore[no-any-return,misc]
 
 
 def convert(html: str, config: Config) -> str:
