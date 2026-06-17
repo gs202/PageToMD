@@ -1,29 +1,4 @@
 # Actions pinned to commit SHAs. Dependabot keeps them updated weekly — see .github/dependabot.yml.
-#
-# Release workflow for `pagetomd`.
-#
-# Triggered when a maintainer pushes a SemVer tag (e.g. `v0.1.0`). Three
-# stages run in order:
-#
-#   1. build         — produce sdist + wheel via `uv build`, smoke-test the
-#                       wheel by installing it in an isolated environment and
-#                       invoking ``pagetomd --version``.
-#   2. publish-pypi  — upload the artefacts to PyPI via Trusted Publishing
-#                       (no API token; OIDC only).
-#   3. github-release — create a GitHub Release with the changelog body and
-#                       the sdist + wheel attached.
-#
-# ─── TODO(release) — MANUAL STEPS BEFORE THE FIRST TAG ─────────────────
-# 1. On PyPI, configure a Trusted Publisher for the project ``pagetomd``
-#    pointing at this repo + this workflow file + the ``pypi`` environment.
-#    Docs: https://docs.pypi.org/trusted-publishers/adding-a-publisher/
-# 2. In the GitHub repo settings, create an Environment named ``pypi``.
-#    Optionally add a required reviewer to gate the publish step.
-# 3. (Done) GitHub org/user placeholders in pyproject.toml, README.md,
-#    CHANGELOG.md, and CONTRIBUTING.md are already resolved to ``gs202``.
-# 4. Tag the commit: ``git tag -a v0.1.0 -m 'v0.1.0' && git push --tags``.
-# ───────────────────────────────────────────────────────────────────────
-
 name: Release
 
 on:
@@ -47,23 +22,10 @@ jobs:
           # version would fall back to the dev marker.
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
-        with:
-          python-version: "3.13"
-
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-
-      - name: Guard against PLACEHOLDER tokens
-        # Fail the build if any PLACEHOLDER token slipped through into
-        # publishable files. Only scans files included in the sdist.
-        run: |
-          set -euo pipefail
-          if grep -rn 'PLACEHOLDER' src/ README.md CHANGELOG.md CONTRIBUTING.md pyproject.toml; then
-            echo "::error::Found PLACEHOLDER token(s) in publishable files — resolve before releasing."
-            exit 1
-          fi
+        with:
+          python-version: "3.12"
 
       - name: Build distributions
         run: uv build

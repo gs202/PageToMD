@@ -15,6 +15,12 @@ _Nothing yet._
 
 - **`uv run` usage** — README now documents how to run `pagetomd` without installing it via `uv run --with pagetomd pagetomd <url>`, including the Playwright variant for SPA pages.
 - **`uv tool install` Playwright note** — README install section now shows the `uv tool install 'pagetomd[playwright]'` command alongside the Chromium install step.
+- **`pytest-xdist`** — parallel test execution via `-n auto --dist=loadscope`; unit tests now complete in ~2.5s locally.
+
+### Changed
+
+- **Python 3.12+** — minimum supported Python version lowered from 3.13 to 3.12.
+- **CI** — all jobs now use `astral-sh/setup-uv` with `python-version` input directly, removing the separate `actions/setup-python` step.
 
 ## [0.1.0] - 2026-06-16
 
@@ -31,7 +37,7 @@ _Nothing yet._
 - **`robots.txt` enforcement** — enabled by default, relaxed for loopback/RFC 1918, opt-out via `--no-respect-robots`.
 - **Typer CLI** — full `PAGETOMD_*` env-var precedence, stable exit codes (`0`/`1`/`2`/`3`/`4`/`5`/`64`/`130`), structured JSON logging (`--log-json`), and `--no-fetched-at` for byte-deterministic output.
 - **Output controls** — `--include-images`, `--include-links`, `--include-comments`, `--code-fences`, `--heading-style`, `--wide-tables`.
-- **GitHub Actions CI** — lint, type-check, and test matrix across Python 3.11–3.13; project-wide 85% coverage floor and 90% per-module floor on critical modules.
+- **GitHub Actions CI** — lint, type-check, and test matrix across Python 3.12; project-wide 85% coverage floor and 90% per-module floor on critical modules.
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
