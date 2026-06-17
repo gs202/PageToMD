@@ -461,7 +461,7 @@ class HttpxFetcher:
             stop=stop_after_attempt(attempts),
             wait=_WaitRetryAfterOrExponential(
                 url,
-                wait_exponential(multiplier=1, min=1, max=8),
+                wait_exponential(multiplier=2, min=2, max=60),
             ),
             retry=retry_if_exception(_is_retryable_exception),
             reraise=True,

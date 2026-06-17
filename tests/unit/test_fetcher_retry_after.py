@@ -114,7 +114,7 @@ def _make_state_for_status(
 
 class TestWaitRetryAfterOrExponential:
     def setup_method(self) -> None:
-        self.exp = wait_exponential(multiplier=1, min=1, max=8)
+        self.exp = wait_exponential(multiplier=2, min=2, max=60)
         self.wait = _WaitRetryAfterOrExponential("https://example.com/x", self.exp)
 
     def test_429_with_retry_after_honoured(self) -> None:
@@ -134,12 +134,12 @@ class TestWaitRetryAfterOrExponential:
         assert _RETRY_AFTER_CAP_SECONDS <= result <= _RETRY_AFTER_CAP_SECONDS + 1
 
     def test_retry_after_floor_is_exponential_value(self) -> None:
-        # On attempt 4 the exponential schedule asks for ~8 s. If the
+        # On attempt 4 the exponential schedule asks for ~16 s. If the
         # server says 1 s, we honour the exponential floor instead — its
         # 1 s would likely re-trigger the same rate limit.
         state = _make_state_for_status(429, retry_after="1", attempt=4)
         result = self.wait(state)
-        assert result >= 8.0
+        assert result >= 16.0
 
     def test_500_ignores_retry_after_uses_exponential(self) -> None:
         # 500 is retryable but not in our Retry-After-honouring set
