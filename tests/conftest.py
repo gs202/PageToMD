@@ -67,7 +67,6 @@ class _FakeFetcher:
             content_type=self.content_type,
             encoding=self.encoding,
             headers=headers,
-            elapsed_ms=0,
         )
 
 
@@ -295,7 +294,6 @@ def make_fetched_doc(
     status_code: int = 200,
     content_type: str = "text/html; charset=utf-8",
     encoding: str = "utf-8",
-    elapsed_ms: int = 1,
 ) -> FetchedDoc:
     """Minimal :class:`FetchedDoc` for unit tests; all fields overridable."""
     return FetchedDoc(
@@ -306,5 +304,4 @@ def make_fetched_doc(
         content_type=content_type,
         encoding=encoding,
         headers={},
-        elapsed_ms=elapsed_ms,
     )

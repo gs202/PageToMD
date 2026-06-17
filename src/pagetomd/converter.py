@@ -322,7 +322,7 @@ def convert(html: str, config: Config) -> str:
             markdownify raises while walking the tree.
     """
     if not html or not html.strip():
-        raise ConversionError("Cannot convert empty HTML", html_length=0)
+        raise ConversionError("Cannot convert empty HTML")
 
     heading_style = UNDERLINED if config.heading_style == "setext" else ATX
     options: dict[str, Any] = {
@@ -344,14 +344,11 @@ def convert(html: str, config: Config) -> str:
     except Exception as exc:
         raise ConversionError(
             "markdownify failed to convert HTML to Markdown",
-            html_length=len(html),
-            original=str(exc),
         ) from exc
 
     markdown = _normalise_blank_lines(markdown).strip() + "\n"
     _log.info(
         "convert.ok",
-        markdown_length=len(markdown),
         wide_tables_mode=config.wide_tables,
     )
     return markdown

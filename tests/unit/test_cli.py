@@ -18,6 +18,7 @@ import pagetomd.cli as cli_module
 from pagetomd import __version__
 from pagetomd.cli import app
 from pagetomd.config import Config
+from pagetomd.crawler import CrawlResult
 from pagetomd.exceptions import (
     DependencyMissingError,
     ExtractionEmptyError,
@@ -43,16 +44,12 @@ def runner() -> CliRunner:
 def _ok_result(
     *,
     output_path: Path | None = Path("out.md"),
-    bytes_written: int = 42,
-    elapsed_ms: int = 7,
 ) -> PipelineResult:
     """Build a :class:`PipelineResult` with sensible defaults for tests."""
     return PipelineResult(
         output_path=output_path,
-        bytes_written=bytes_written,
         final_url="https://example.com/x",
         title="X",
-        elapsed_ms=elapsed_ms,
     )
 
 
@@ -97,8 +94,11 @@ def test_help_smoke(runner: CliRunner) -> None:
     assert "Convert a webpage URL" in result.stdout
 
 
-def test_help_mentions_locked_flags(runner: CliRunner) -> None:
+def test_help_mentions_locked_flags(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every documented flag appears somewhere in the help text."""
+    # Typer's rich renderer drops rows when the panel is too narrow.
+    # Pin a wide width so every option survives even as we add new ones.
+    monkeypatch.setenv("COLUMNS", "240")
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     # Strip ANSI escape codes and Rich box-drawing decoration so
@@ -126,6 +126,8 @@ def test_help_mentions_locked_flags(runner: CliRunner) -> None:
         "--log-level",
         "--log-json",
         "--debug",
+        "--crawl",
+        "--crawl-depth",
         "--version",
     ):
         assert flag in plain, f"flag {flag!r} missing from --help output"
@@ -153,15 +155,14 @@ def test_happy_path_writes_summary_to_stderr(
 ) -> None:
     """A successful run prints a checkmark summary to **stderr**."""
     out = tmp_path / "out.md"
-    fake_run["result"] = _ok_result(output_path=out, bytes_written=123, elapsed_ms=11)
+    fake_run["result"] = _ok_result(output_path=out)
 
     result = runner.invoke(app, ["https://example.com/x", "-o", str(out)])
 
     assert result.exit_code == 0
     assert result.stdout == ""  # stdout must stay pristine
-    assert "✓ wrote 123 bytes to" in result.stderr
+    assert "✓ wrote to" in result.stderr
     assert str(out) in result.stderr
-    assert "(11ms)" in result.stderr
     assert fake_configure_logging  # was called
 
 
@@ -171,7 +172,7 @@ def test_stdout_sink_passes_dash_path(
     fake_configure_logging: list[tuple[str, bool]],
 ) -> None:
     """``-o -`` becomes ``Path("-")`` in the merged config."""
-    fake_run["result"] = _ok_result(output_path=None, bytes_written=9)
+    fake_run["result"] = _ok_result(output_path=None)
 
     result = runner.invoke(app, ["https://example.com/x", "-o", "-"])
 
@@ -346,7 +347,6 @@ def test_dependency_missing_for_playwright_returns_5(
     fake_run["exc"] = DependencyMissingError(
         "Playwright fetcher not yet implemented; install with "
         "pagetomd[playwright] and wait for M5.",
-        extra="playwright",
     )
     result = runner.invoke(app, ["https://example.com/x", "--fetcher", "playwright", "-o", "-"])
     assert result.exit_code == 5
@@ -375,7 +375,7 @@ def test_unexpected_runtime_error_wrapped_to_exit_1(
     """A base ``PageToMdError`` (wrapping an unexpected failure) exits 1."""
 
     def explode(cfg: Config) -> PipelineResult:
-        raise PageToMdError("Unexpected pipeline failure", original="x")
+        raise PageToMdError("Unexpected pipeline failure")
 
     monkeypatch.setattr(cli_module, "run", explode)
     result = runner.invoke(app, ["https://example.com/x", "-o", "-"])
@@ -390,7 +390,7 @@ def test_stdout_sink_with_overwrite(
     fake_configure_logging: list[tuple[str, bool]],
 ) -> None:
     """``-o -`` + ``--overwrite`` is accepted (overwrite is harmless)."""
-    fake_run["result"] = _ok_result(output_path=None, bytes_written=11)
+    fake_run["result"] = _ok_result(output_path=None)
 
     result = runner.invoke(app, ["https://example.com/x", "-o", "-", "--overwrite"])
 
@@ -481,3 +481,116 @@ def test_no_env_overrides_no_log_event(
     assert result.exit_code == 0
     env_events = [entry for entry in logs if entry.get("event") == "config.env_overrides"]
     assert env_events == [], f"unexpected env_overrides event(s): {env_events!r}"
+
+
+# ---------------------------------------------------------------------------
+# --crawl / --crawl-depth flag tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def fake_crawl(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Replace :func:`cli.crawl` with a recorder so flag plumbing can be asserted."""
+    state: dict[str, Any] = {
+        "cfg": None,
+        "max_depth": None,
+        "result": None,
+        "exc": None,
+    }
+
+    def _fake(cfg: Config, *, max_depth: int = 1) -> CrawlResult:
+        state["cfg"] = cfg
+        state["max_depth"] = max_depth
+        if state["exc"] is not None:
+            raise state["exc"]
+        return state["result"] or CrawlResult(
+            pages_written=3,
+            pages_skipped=0,
+            pages_failed=0,
+            output_dir=Path("./out"),
+        )
+
+    monkeypatch.setattr(cli_module, "crawl", _fake)
+    return state
+
+
+def test_crawl_flag_calls_crawl_not_run(
+    runner: CliRunner,
+    fake_crawl: dict[str, Any],
+    fake_run: dict[str, Any],
+    fake_configure_logging: list[tuple[str, bool]],
+    tmp_path: Path,
+) -> None:
+    """``--crawl`` routes to :func:`crawl`, not :func:`run`."""
+    result = runner.invoke(app, ["https://example.com/docs/seed", "--crawl", "-o", str(tmp_path)])
+    assert result.exit_code == 0, result.stderr
+    assert fake_crawl["cfg"] is not None
+    assert fake_crawl["max_depth"] == 1  # default
+    # The single-page pipeline must NOT have been entered.
+    assert fake_run["cfg"] is None
+
+
+def test_crawl_depth_flag(
+    runner: CliRunner,
+    fake_crawl: dict[str, Any],
+    fake_run: dict[str, Any],
+    fake_configure_logging: list[tuple[str, bool]],
+    tmp_path: Path,
+) -> None:
+    """``--crawl-depth 3`` is forwarded to :func:`crawl`."""
+    result = runner.invoke(
+        app,
+        [
+            "https://example.com/docs/seed",
+            "--crawl",
+            "--crawl-depth",
+            "3",
+            "-o",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stderr
+    assert fake_crawl["max_depth"] == 3
+
+
+def test_crawl_requires_directory_output(
+    runner: CliRunner,
+    fake_crawl: dict[str, Any],
+    fake_run: dict[str, Any],
+    fake_configure_logging: list[tuple[str, bool]],
+    tmp_path: Path,
+) -> None:
+    """``--crawl`` with ``-o`` pointing to an existing file is rejected."""
+    existing_file = tmp_path / "file.md"
+    existing_file.write_text("x")
+    result = runner.invoke(
+        app, ["https://example.com/docs/seed", "--crawl", "-o", str(existing_file)]
+    )
+    assert result.exit_code != 0
+    combined = (result.output or "") + (result.stderr or "")
+    assert "directory" in combined.lower()
+
+
+def test_crawl_rejects_stdout(
+    runner: CliRunner,
+    fake_crawl: dict[str, Any],
+    fake_run: dict[str, Any],
+    fake_configure_logging: list[tuple[str, bool]],
+) -> None:
+    """``--crawl`` with ``-o -`` is rejected."""
+    result = runner.invoke(app, ["https://example.com/docs/seed", "--crawl", "-o", "-"])
+    assert result.exit_code != 0
+
+
+def test_crawl_summary_printed_to_stderr(
+    runner: CliRunner,
+    fake_crawl: dict[str, Any],
+    fake_run: dict[str, Any],
+    fake_configure_logging: list[tuple[str, bool]],
+    tmp_path: Path,
+) -> None:
+    """A successful crawl prints a summary line containing the totals."""
+    result = runner.invoke(app, ["https://example.com/docs/seed", "--crawl", "-o", str(tmp_path)])
+    assert result.exit_code == 0, result.stderr
+    combined = (result.output or "") + (result.stderr or "")
+    assert "3 written" in combined

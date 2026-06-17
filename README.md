@@ -89,6 +89,55 @@ done < urls.txt
 Each successful conversion exits `0`; any non-zero exit leaves the loop
 running but is visible in stderr (see [Exit codes](#exit-codes) below).
 
+### Crawl an entire documentation site
+
+Use `--crawl` to discover every linked sub-page under a seed URL and write
+one `.md` file per page into an output directory:
+
+```bash
+pagetomd "https://docs.example.com/guide/" \
+  --crawl --crawl-depth 2 \
+  --fetcher auto --no-respect-robots \
+  -o ./docs-output/
+```
+
+**Scope:** The seed is treated as the root of its own subtree. Only links
+whose URL lives *under* the seed are followed; siblings, parents, and
+external sites are skipped. For a seed of
+`https://docs.example.com/guide/intro` the in-scope prefix is
+`https://docs.example.com/guide/intro/` — pass a trailing slash on the
+seed (or use a "directory" URL like `/guide/`) to scope the crawl one
+level higher.
+
+**Output structure:** The on-disk layout mirrors the URL hierarchy under
+the seed, so two pages with the same final URL segment under different
+parents do not collide:
+
+| URL                                                  | Output file (relative to `-o`)     |
+|------------------------------------------------------|------------------------------------|
+| The seed itself                                      | `index.md`                         |
+| `…/guide/intro`                                      | `intro.md`                         |
+| `…/guide/intro/`                                     | `intro/index.md`                   |
+| `…/guide/concepts/alerts`                            | `concepts/alerts.md`               |
+| `…/guide/concepts/alerts/`                           | `concepts/alerts/index.md`         |
+
+Each path segment is slugified independently, and Windows-reserved device
+names (`CON`, `PRN`, …) are escaped per segment.
+
+**Options:**
+
+- `--crawl-depth N` — BFS hop limit from the seed (default: `1`).
+  `--crawl-depth 10` against a site that naturally ends at depth 3 simply
+  stops when the queue empties; nothing is wasted.
+- `--overwrite` — replace existing `.md` files (default: skip). Skipped and failed URLs are printed at the end of the crawl so you can retry them individually.
+- All other flags (`--fetcher`, `--no-verify-ssl`, `--user-agent`,
+  `--retries`, …) apply to every page in the crawl. `--retries` honours
+  `Retry-After` headers on 429/503 responses (capped at 5 minutes per
+  attempt).
+
+A single fetcher context is reused across the whole crawl, so browser
+backends do not relaunch Chromium per page.
+
 ## Output shape
 
 Running `pagetomd http://127.0.0.1:8765/blog.html --no-fetched-at -o -` against the `blog.html` fixture prints (first ~15 lines shown):
@@ -125,7 +174,7 @@ A compact overview — see `pagetomd --help` for the full list.
 | `--follow-symlinks / --no-follow-symlinks` | `false` | Allow writes to a symlinked destination. Off by default so `--overwrite` cannot be tricked into clobbering a file outside the intended directory via a symlink. |
 | `--fetcher` | `httpx` | `httpx`, `playwright`, or `auto`. |
 | `--timeout` | `30.0` | Per-request HTTP timeout (seconds). |
-| `--retries` | `3` | Retry attempts on transient failures. |
+| `--retries` | `4` | Per-page retry attempts on transient failures (default 4 = up to 5 total attempts). Honours the server's `Retry-After` header on 429/503 responses, capped at 5 minutes; falls back to exponential backoff otherwise. |
 | `--user-agent` | `pagetomd/<ver>` | Override the outbound `User-Agent`. |
 | `--no-verify-ssl` | `false` | Disable TLS certificate verification (for corporate proxies that re-sign HTTPS). |
 | `--respect-robots / --no-respect-robots` | `true` | Honour `robots.txt` (relaxed for loopback/RFC 1918). |
@@ -141,6 +190,8 @@ A compact overview — see `pagetomd --help` for the full list.
 | `--log-json` | `false` | Emit logs as JSON lines on stderr. |
 | `--debug` | `false` | Shortcut for `--log-level=debug` + tracebacks on error. |
 | `--playwright-idle-ms` | `500` | Extra wait (ms) after networkidle for late-firing scripts (Playwright fetcher only). |
+| `--crawl` | `false` | Crawl all linked sub-pages under the seed URL's path prefix and write one `.md` file per page. Requires `-o` to be a directory. |
+| `--crawl-depth` | `1` | Maximum BFS depth from the seed URL when `--crawl` is active. `0` = seed only. |
 | `--version` | — | Print the installed version and exit. |
 
 ## Environment variables

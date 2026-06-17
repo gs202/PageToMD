@@ -197,7 +197,7 @@ def test_auto_propagates_httpx_fetch_error_without_trying_playwright(
         log_level="warning",
         fetcher="auto",
     )
-    boom = FetchError("network down", url=config.url)
+    boom = FetchError("network down")
     fake_httpx = _FakeHttpx(exc=boom)
     monkeypatch.setattr(pipeline, "HttpxFetcher", lambda cfg: fake_httpx)
     monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
@@ -342,8 +342,6 @@ def test_auto_pipeline_falls_back_on_extraction_empty(
         if call_count == 1:
             raise ExtractionEmptyError(
                 "Extractor produced no readable content",
-                url="https://example.com/x",
-                html_length=len(doc.html),
             )
         return real_extract(doc, cfg)
 
@@ -373,8 +371,6 @@ def test_auto_pipeline_extraction_empty_no_fallback_for_non_auto(
     def _extract_always_fail(doc: FetchedDoc, cfg: Config) -> object:
         raise ExtractionEmptyError(
             "Extractor produced no readable content",
-            url="https://example.com/x",
-            html_length=len(doc.html),
         )
 
     monkeypatch.setattr(pipeline, "extract", _extract_always_fail)

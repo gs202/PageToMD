@@ -277,5 +277,5 @@ def test_internal_helper_failure_wrapped_in_conversion_error(
     with pytest.raises(ConversionError) as excinfo:
         postprocess("any content", base_url=BASE_URL)
 
-    assert excinfo.value.context["stage"] == "postprocess"
-    assert "simulated parser explosion" in str(excinfo.value.context["original"])
+    assert "post-processing failed" in excinfo.value.message.lower()
+    assert isinstance(excinfo.value.__cause__, RuntimeError)

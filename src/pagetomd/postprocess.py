@@ -149,11 +149,7 @@ def postprocess(markdown: str, *, base_url: str, title: str | None = None) -> st
         raise
     except Exception as exc:  # pragma: no cover - defensive catch-all
         _log.error("postprocess_failed", error=str(exc))
-        raise ConversionError(
-            "Markdown post-processing failed.",
-            original=str(exc),
-            stage="postprocess",
-        ) from exc
+        raise ConversionError("Markdown post-processing failed.") from exc
 
 
 def _split_fenced_blocks(text: str) -> list[tuple[bool, str]]:

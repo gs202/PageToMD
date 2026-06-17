@@ -138,11 +138,7 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
         url=doc.final_url,
     )
     if extracted is None or not extracted.strip():
-        raise ExtractionEmptyError(
-            "Extractor produced no readable content",
-            url=redact_url(doc.final_url),
-            html_length=len(doc.html),
-        )
+        raise ExtractionEmptyError("Extractor produced no readable content")
 
     meta = _safe_extract_metadata(cleaned_input_html, bound)
 
@@ -159,7 +155,6 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     bound.info(
         "extract.ok",
         title=result.title,
-        cleaned_html_length=len(extracted),
         base_href=base_href,
     )
     return result

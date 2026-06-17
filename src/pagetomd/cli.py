@@ -19,7 +19,8 @@ from typer._click.core import ParameterSource
 
 from pagetomd import __version__
 from pagetomd.config import Config
-from pagetomd.exceptions import PageToMdError
+from pagetomd.crawler import CrawlResult, crawl
+from pagetomd.exceptions import PageToMdError, UsageError
 from pagetomd.logging import configure_logging, get_logger
 from pagetomd.pipeline import PipelineResult, run
 
@@ -126,8 +127,15 @@ def main(
     ] = 30.0,
     retries: Annotated[
         int,
-        typer.Option("--retries", help="Retry attempts on transient failures."),
-    ] = 3,
+        typer.Option(
+            "--retries",
+            help=(
+                "Retry attempts on transient failures (per page). "
+                "Default 4 yields up to 5 total attempts. "
+                "Honours the server's Retry-After header on 429/503."
+            ),
+        ),
+    ] = 4,
     user_agent: Annotated[
         str | None,
         typer.Option(
@@ -244,6 +252,25 @@ def main(
             ),
         ),
     ] = False,
+    crawl_site: Annotated[
+        bool,
+        typer.Option(
+            "--crawl",
+            help=(
+                "Crawl all linked sub-pages reachable from URL and convert each "
+                "to a separate .md file. Requires -o to be a directory "
+                "(not a file or stdout)."
+            ),
+        ),
+    ] = False,
+    crawl_depth: Annotated[
+        int,
+        typer.Option(
+            "--crawl-depth",
+            help=("Maximum BFS depth from the seed URL when --crawl is active. Default: 1."),
+            min=0,
+        ),
+    ] = 1,
     version: Annotated[
         bool,
         typer.Option(
@@ -292,6 +319,11 @@ def main(
         )
         configure_logging(level=cfg.log_level, json_mode=cfg.log_json)
         _emit_env_override_log(cfg, cli_overrides)
+        if crawl_site:
+            _validate_crawl_output(output)
+            crawl_result = crawl(cfg, max_depth=crawl_depth)
+            _print_crawl_summary(crawl_result)
+            return
         result = run(cfg)
     except PageToMdError as exc:
         _report_error(exc, debug=debug)
@@ -416,7 +448,46 @@ def _report_error(exc: PageToMdError, *, debug: bool) -> None:
 def _print_success_summary(result: PipelineResult) -> None:
     """Emit the one-line success summary to stderr (never stdout)."""
     target = "<stdout>" if result.output_path is None else str(result.output_path)
+    typer.echo(f"✓ wrote to {target}", err=True)
+
+
+def _validate_crawl_output(output: str | None) -> None:
+    """Reject ``--crawl`` invocations whose ``-o`` is stdout or an existing file.
+
+    Crawl mode always writes one ``.md`` file per page, so the destination
+    must be a directory we can populate. A ``None`` output is accepted —
+    it resolves to the current working directory inside :func:`crawl`.
+
+    Raises:
+        UsageError: When ``output`` is the stdout sentinel ``"-"`` or
+            points to an existing non-directory path.
+    """
+    if output == "-":
+        raise UsageError(
+            "--crawl cannot be combined with -o - (stdout); "
+            "crawl writes one file per page and requires a directory."
+        )
+    if output is not None:
+        out_path = Path(output)
+        if out_path.exists() and not out_path.is_dir():
+            raise UsageError(f"--crawl requires -o to be a directory, but {output!r} is a file.")
+
+
+def _print_crawl_summary(result: CrawlResult) -> None:
+    """Emit the crawl summary to stderr."""
     typer.echo(
-        f"✓ wrote {result.bytes_written} bytes to {target} ({result.elapsed_ms}ms)",
+        f"✓ crawl complete: {result.pages_written} written, "
+        f"{result.pages_skipped} skipped, {result.pages_failed} failed "
+        f"(total {result.total})",
         err=True,
     )
+    if result.skipped_urls:
+        typer.echo("", err=True)
+        typer.echo("Skipped (file already exists — re-run with --overwrite):", err=True)
+        for url in result.skipped_urls:
+            typer.echo(f"  {url}", err=True)
+    if result.failed_urls:
+        typer.echo("", err=True)
+        typer.echo("Failed (fetch/conversion error — retry individually):", err=True)
+        for url in result.failed_urls:
+            typer.echo(f"  {url}", err=True)

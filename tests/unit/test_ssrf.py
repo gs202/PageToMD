@@ -56,10 +56,9 @@ def test_public_hostname_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_loopback_ipv4_blocked() -> None:
-    """``127.0.0.1`` is refused with the host captured in context."""
-    with pytest.raises(FetchError) as exc_info:
+    """``127.0.0.1`` is refused."""
+    with pytest.raises(FetchError):
         guard_url("http://127.0.0.1/")
-    assert exc_info.value.context["host"] == "127.0.0.1"
 
 
 def test_loopback_ipv6_blocked() -> None:
@@ -144,11 +143,10 @@ def test_cloud_metadata_gcp_shortname_blocked() -> None:
 
 
 def test_hostname_resolving_to_private_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A hostname that resolves to a private IP is refused with ``resolved`` set."""
+    """A hostname that resolves to a private IP is refused."""
     monkeypatch.setattr(socket, "getaddrinfo", _public_getaddrinfo("10.0.0.5"))
-    with pytest.raises(FetchError) as exc_info:
+    with pytest.raises(FetchError):
         guard_url("http://internal.corp.example/")
-    assert exc_info.value.context["resolved"] == "10.0.0.5"
 
 
 def test_dns_failure_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:

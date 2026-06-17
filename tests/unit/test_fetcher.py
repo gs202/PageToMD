@@ -51,7 +51,6 @@ def test_success_returns_fetched_doc(cfg: Config) -> None:
     assert doc.status_code == 200
     assert "hi" in doc.html
     assert doc.content_type is not None and "text/html" in doc.content_type
-    assert doc.elapsed_ms >= 0
 
 
 @respx.mock
@@ -105,9 +104,7 @@ def test_exhausted_retries_raises_fetch_error(cfg: Config) -> None:
         HttpxFetcher(cfg).fetch("https://example.com/down")
 
     assert route.call_count == cfg.retries + 1
-    assert excinfo.value.context["status_code"] == 503
-    assert excinfo.value.context["attempt"] == cfg.retries + 1
-    assert excinfo.value.context["url"] == "https://example.com/down"
+    assert "503" in excinfo.value.message
 
 
 @respx.mock
@@ -115,13 +112,10 @@ def test_transport_error_retried_then_fetch_error(cfg: Config) -> None:
     """A persistent :class:`httpx.ConnectError` exhausts retries."""
     route = respx.get("https://example.com/boom").mock(side_effect=httpx.ConnectError("boom"))
 
-    with pytest.raises(FetchError) as excinfo:
+    with pytest.raises(FetchError):
         HttpxFetcher(cfg).fetch("https://example.com/boom")
 
     assert route.call_count == cfg.retries + 1
-    # Transport-level failures carry no status code.
-    assert excinfo.value.context["status_code"] is None
-    assert excinfo.value.context["attempt"] == cfg.retries + 1
 
 
 @respx.mock
@@ -133,8 +127,7 @@ def test_404_not_retried(cfg: Config) -> None:
         HttpxFetcher(cfg).fetch("https://example.com/missing")
 
     assert route.call_count == 1
-    assert excinfo.value.context["status_code"] == 404
-    assert excinfo.value.context["attempt"] == 1
+    assert "404" in excinfo.value.message
 
 
 @respx.mock
@@ -171,9 +164,8 @@ def test_robots_disallows_private_but_allows_public(cfg_robots: Config) -> None:
 
     fetcher = HttpxFetcher(cfg_robots)
 
-    with pytest.raises(RobotsDisallowedError) as excinfo:
+    with pytest.raises(RobotsDisallowedError):
         fetcher.fetch("https://example.com/private")
-    assert excinfo.value.context["url"] == "https://example.com/private"
 
     doc = fetcher.fetch("https://example.com/public")
     assert doc.status_code == 200
@@ -399,7 +391,6 @@ def test_ssl_cert_error_not_retried(cfg: Config, monkeypatch: pytest.MonkeyPatch
 
     # Must NOT retry — exactly 1 attempt.
     assert call_count == 1
-    assert excinfo.value.context["attempt"] == 1
     assert "--no-verify-ssl" in excinfo.value.hint
 
 

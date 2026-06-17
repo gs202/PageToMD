@@ -40,9 +40,8 @@ def test_exit_code_and_hint(exc_cls: type[PageToMdError], expected_code: int) ->
 
 def test_robots_disallowed_is_caught_as_fetch_error() -> None:
     """RobotsDisallowedError is caught by a FetchError handler (exit-code contract)."""
-    err = RobotsDisallowedError("blocked", url="https://example.com")
+    err = RobotsDisallowedError("blocked")
     assert err.exit_code == 2
-    assert err.context["url"] == "https://example.com"
     assert "--no-respect-robots" in err.hint
 
 
@@ -54,19 +53,6 @@ def test_str_includes_class_name_and_message(exc_cls: type[PageToMdError]) -> No
     assert exc_cls.__name__ in rendered
     assert "boom" in rendered
     assert rendered == f"{exc_cls.__name__}: boom"
-
-
-def test_context_is_stored() -> None:
-    """Arbitrary kwargs must be captured on the .context dict."""
-    err = FetchError("fail", url="https://example.com", status=503, retries=3)
-    assert err.context == {
-        "url": "https://example.com",
-        "status": 503,
-        "retries": 3,
-    }
-    # Without kwargs we get an empty dict, not None.
-    bare = ConversionError("nope")
-    assert bare.context == {}
 
 
 def test_message_attribute_is_exposed() -> None:

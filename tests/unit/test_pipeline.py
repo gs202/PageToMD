@@ -142,11 +142,24 @@ def test_run_result_fields_populated(tmp_path: Path) -> None:
     result = run(config, fetcher=fetcher)
 
     assert result.output_path == target
-    assert result.bytes_written > 0
-    assert result.bytes_written == len(target.read_bytes())
     assert result.final_url == "https://example.com/x"
     assert result.title == "Article Title"
-    assert result.elapsed_ms >= 0
+
+
+def test_pipeline_result_has_fetched_html(tmp_path: Path) -> None:
+    """``PipelineResult.fetched_html`` carries the raw HTML from the fetch stage.
+
+    The crawl orchestrator relies on this so it can extract outbound links
+    without paying for a second fetch of every page.
+    """
+    config = _pipeline_config(tmp_path)
+    fetcher = FakeFetcher(marker="fetched-html")
+
+    result = run(config, fetcher=fetcher)
+
+    assert result.fetched_html is not None
+    assert isinstance(result.fetched_html, str)
+    assert "Article Title" in result.fetched_html
 
 
 def test_run_stdout_sink(
@@ -215,8 +228,8 @@ def test_run_fetched_at_field(tmp_path: Path, no_fetched_at: bool, expect_presen
 @pytest.mark.parametrize(
     ("exc_factory", "exc_cls"),
     [
-        (lambda url: FetchError("bad", url=url), FetchError),
-        (lambda url: RobotsDisallowedError("nope", url=url), RobotsDisallowedError),
+        (lambda url: FetchError("bad"), FetchError),
+        (lambda url: RobotsDisallowedError("nope"), RobotsDisallowedError),
     ],
     ids=["fetch_error", "robots_disallowed"],
 )
@@ -275,10 +288,8 @@ def test_run_unexpected_exception_wrapped(
     with pytest.raises(PageToMdError) as excinfo:
         run(config, fetcher=fetcher)
 
-    # The original exception must be preserved as the cause AND surfaced
-    # via the structured context["original"] for log/debug readability.
+    # The original exception must be preserved as the cause.
     assert isinstance(excinfo.value.__cause__, RuntimeError)
-    assert excinfo.value.context.get("original") == "boom"
 
 
 def test_run_playwright_missing_dependency_raises_typed(
@@ -339,7 +350,7 @@ def test_run_httpx_fetcher_context_managed(
     ("exc", "raises"),
     [
         (None, False),
-        (FetchError("nope", url="https://example.com/x"), True),
+        (FetchError("nope"), True),
     ],
     ids=["success", "failure"],
 )
@@ -361,7 +372,7 @@ def test_run_emits_pipeline_start_and_ok(tmp_path: Path) -> None:
     fetcher = FakeFetcher(marker="log-events")
 
     with capture_logs() as cap:
-        result = run(config, fetcher=fetcher)
+        run(config, fetcher=fetcher)
 
     events = {entry["event"]: entry for entry in cap}
     assert "pipeline.start" in events
@@ -372,8 +383,6 @@ def test_run_emits_pipeline_start_and_ok(tmp_path: Path) -> None:
     assert start["output"].endswith("out.md")
 
     ok = events["pipeline.ok"]
-    assert ok["elapsed_ms"] == result.elapsed_ms
-    assert ok["bytes_written"] == result.bytes_written
     assert ok["output_path"].endswith("out.md")
 
 

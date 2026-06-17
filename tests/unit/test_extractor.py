@@ -125,8 +125,7 @@ def test_empty_body_raises_extraction_empty_error() -> None:
     with pytest.raises(ExtractionEmptyError) as excinfo:
         extract(make_fetched_doc("<html><body></body></html>"), make_config())
 
-    assert excinfo.value.context["url"] == "https://example.com/x"
-    assert "html_length" in excinfo.value.context
+    assert "no readable content" in excinfo.value.message.lower()
 
 
 @pytest.mark.parametrize(

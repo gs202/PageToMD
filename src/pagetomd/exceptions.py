@@ -30,10 +30,9 @@ class PageToMdError(Exception):
     exit_code: int = 1
     hint: str = "Unexpected error. Run with --debug for a full traceback."
 
-    def __init__(self, message: str, **context: object) -> None:
+    def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message: str = message
-        self.context: dict[str, object] = dict(context)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}: {self.message}"

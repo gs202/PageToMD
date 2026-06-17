@@ -293,22 +293,14 @@ def write_output(
     if _is_stdout_sentinel(output):
         sys.stdout.write(document)
         sys.stdout.flush()
-        _log.info(
-            "write.ok",
-            path="stdout",
-            bytes_written=len(document.encode("utf-8")),
-        )
+        _log.info("write.ok", path="stdout")
         return None
 
     if output is None:
         # Defensive guard: the CLI is contractually required to resolve the
         # default path before calling us, but raise a typed error if it ever
         # forgets so we never silently no-op.
-        raise WriteError(
-            "Output path was not provided",
-            path=None,
-            hint="Pass an explicit Path or '-' for stdout.",
-        )
+        raise WriteError("Output path was not provided")
 
     # ``output`` is what we report back to the caller (the path they asked
     # for); ``target`` is what we actually write to. They diverge only when
@@ -329,7 +321,6 @@ def write_output(
         if not follow_symlinks:
             raise WriteError(
                 "Destination is a symlink. Pass --follow-symlinks to replace via the link target.",
-                path=str(target),
             )
         # ``follow_symlinks=True`` → resolve the link to its target so the
         # atomic write replaces the underlying file rather than swapping the
@@ -342,19 +333,13 @@ def write_output(
         if not overwrite:
             raise WriteError(
                 "Destination file already exists. Use --overwrite to replace.",
-                path=str(target),
-                hint="Pass --overwrite to replace the existing file.",
             )
-        _log.warning("write.overwrite", path=str(target))
+        _log.info("write.overwrite", path=str(target))
 
     _ensure_parent_dir(target)
     _atomic_write(target, document)
 
-    _log.info(
-        "write.ok",
-        path=str(target),
-        bytes_written=len(document.encode("utf-8")),
-    )
+    _log.info("write.ok", path=str(target))
     return output_path
 
 
@@ -385,8 +370,6 @@ def _ensure_parent_dir(target: Path) -> None:
     except OSError as exc:
         raise WriteError(
             f"Failed to create output directory: {exc}",
-            path=str(target),
-            original=str(exc),
         ) from exc
 
 
@@ -409,11 +392,7 @@ def _atomic_write(target: Path, document: str) -> None:
     except OSError as exc:
         with contextlib.suppress(OSError):
             temp_path.unlink(missing_ok=True)
-        raise WriteError(
-            f"Failed to write output: {exc}",
-            path=str(target),
-            original=str(exc),
-        ) from exc
+        raise WriteError(f"Failed to write output: {exc}") from exc
 
 
 def _slug_candidate_from_url(url: str) -> str:

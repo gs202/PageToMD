@@ -7,7 +7,6 @@ are wrapped as :class:`~pagetomd.exceptions.PageToMdError`.
 from __future__ import annotations
 
 import secrets
-import time
 import types
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -30,9 +29,7 @@ from pagetomd.logging import get_logger
 from pagetomd.postprocess import postprocess
 from pagetomd.ssrf import redact_url
 from pagetomd.writer import (
-    Frontmatter,
     build_frontmatter,
-    serialize_frontmatter,
     slugify_default_path,
     write_output,
 )
@@ -74,10 +71,12 @@ class PipelineResult:
     """Outcome of a successful end-to-end conversion run."""
 
     output_path: Path | None
-    bytes_written: int
     final_url: str
     title: str | None
-    elapsed_ms: int
+    # Raw HTML returned by the fetch stage. Exposed so callers (the crawl
+    # orchestrator in particular) can extract outbound links without
+    # paying for a second fetch of the same page.
+    fetched_html: str | None = None
 
 
 def run(config: Config, *, fetcher: Fetcher | None = None) -> PipelineResult:
@@ -94,8 +93,7 @@ def run(config: Config, *, fetcher: Fetcher | None = None) -> PipelineResult:
             ``with`` so the underlying ``httpx.Client`` is always closed.
 
     Returns:
-        A :class:`PipelineResult` with output path, bytes written,
-        resolved URL, title, and elapsed time.
+        A :class:`PipelineResult` with output path, resolved URL, and title.
 
     Raises:
         Typed :class:`~pagetomd.exceptions.PageToMdError` subclasses.
@@ -108,7 +106,6 @@ def run(config: Config, *, fetcher: Fetcher | None = None) -> PipelineResult:
 
     log = get_logger(__name__)
 
-    start_s = time.perf_counter()
     target: Path | None = None
     try:
         target = _resolve_initial_target(config.output)
@@ -120,17 +117,14 @@ def run(config: Config, *, fetcher: Fetcher | None = None) -> PipelineResult:
 
         if fetcher is not None:
             # Caller owns the lifecycle — just use it.
-            return _run_with_fetcher(config, fetcher, start_s, log)
+            return _run_with_fetcher(config, fetcher, log)
 
         with _select_fetcher(config) as owned:
-            return _run_with_fetcher(config, owned, start_s, log)
+            return _run_with_fetcher(config, owned, log)
     except PageToMdError:
         raise
     except Exception as exc:
-        raise PageToMdError(
-            "Unexpected pipeline failure",
-            original=str(exc),
-        ) from exc
+        raise PageToMdError("Unexpected pipeline failure") from exc
     finally:
         structlog.contextvars.clear_contextvars()
 
@@ -138,7 +132,6 @@ def run(config: Config, *, fetcher: Fetcher | None = None) -> PipelineResult:
 def _run_with_fetcher(
     config: Config,
     fetcher: Fetcher,
-    start_s: float,
     log: structlog.stdlib.BoundLogger,
 ) -> PipelineResult:
     """Drive the stage sequence against an already-prepared fetcher."""
@@ -184,21 +177,15 @@ def _run_with_fetcher(
         follow_symlinks=config.follow_symlinks,
     )
 
-    bytes_written = _bytes_written(frontmatter, body_md)
-    elapsed_ms = int((time.perf_counter() - start_s) * 1000)
-
     log.info(
         "pipeline.ok",
-        elapsed_ms=elapsed_ms,
-        bytes_written=bytes_written,
         output_path=str(output_path) if output_path is not None else "stdout",
     )
     return PipelineResult(
         output_path=output_path,
-        bytes_written=bytes_written,
         final_url=fetched.final_url,
         title=extracted.title,
-        elapsed_ms=elapsed_ms,
+        fetched_html=fetched.html,
     )
 
 
@@ -230,13 +217,6 @@ def _resolve_base_url(*, base_href: str | None, final_url: str) -> str:
     if not base_href:
         return final_url
     return urljoin(final_url, base_href)
-
-
-def _bytes_written(frontmatter: Frontmatter, body_md: str) -> int:
-    """Predict the UTF-8 byte length of the rendered output document."""
-    head = serialize_frontmatter(frontmatter)
-    body = body_md.rstrip("\n") + "\n"
-    return len(f"{head}\n{body}".encode())
 
 
 def _select_fetcher(config: Config) -> AbstractContextManager[Fetcher]:
@@ -324,7 +304,6 @@ class _AutoFetcher:
             "fetch.auto.fallback",
             url=redact_url(url),
             reason="spa_shell_detected",
-            body_chars=_body_char_count(doc.html),
         )
         return self.fetch_playwright(url)
 
@@ -333,13 +312,3 @@ class _AutoFetcher:
         if self._playwright is None:
             self._playwright = PlaywrightFetcher(self._config)
         return self._playwright.fetch(url)
-
-
-def _body_char_count(html: str) -> int:
-    """Return the post-strip length of the ``<body>`` text — for logging only."""
-    try:
-        soup = BeautifulSoup(html, "lxml")
-    except Exception:  # pragma: no cover - defensive against bad input
-        return 0
-    body = soup.body
-    return len(body.get_text(strip=True)) if body is not None else 0

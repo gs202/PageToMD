@@ -204,8 +204,7 @@ def test_content_length_header_exceeds_cap_raises_fetch_error() -> None:
 
     with pytest.raises(FetchError) as excinfo:
         HttpxFetcher(cfg).fetch("https://example.com/big")
-    assert excinfo.value.context["content_length"] == 10000
-    assert excinfo.value.context["max_body_bytes"] == 100
+    assert "10000" in excinfo.value.message or "byte cap" in excinfo.value.message
 
 
 @respx.mock
@@ -221,7 +220,7 @@ def test_actual_body_exceeds_cap_raises_fetch_error() -> None:
 
     with pytest.raises(FetchError) as excinfo:
         HttpxFetcher(cfg).fetch("https://example.com/chunked")
-    assert excinfo.value.context["content_length"] == 5000
+    assert "byte cap" in excinfo.value.message
 
 
 def test_max_body_bytes_must_be_positive() -> None:
@@ -368,13 +367,10 @@ def test_fetch_error_url_context_redacts_userinfo() -> None:
     with pytest.raises(FetchError) as excinfo:
         HttpxFetcher(cfg).fetch("https://alice:secret@example.com/x")  # pragma: allowlist secret
 
-    captured_url = excinfo.value.context["url"]
-    assert isinstance(captured_url, str)
-    assert "alice" not in captured_url
-    assert "secret" not in captured_url
-    assert "example.com/x" in captured_url
-    # The FetchError message itself also embeds the URL — must be clean too.
+    # The FetchError message embeds the URL — must be redacted.
     assert "alice" not in excinfo.value.message
+    assert "secret" not in excinfo.value.message  # pragma: allowlist secret
+    assert "example.com/x" in excinfo.value.message
     assert "secret" not in excinfo.value.message
 
 

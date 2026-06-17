@@ -7,4 +7,6 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0+unknown"
 
-__all__ = ["__version__"]
+from pagetomd.crawler import CrawlResult, crawl
+
+__all__ = ["CrawlResult", "__version__", "crawl"]

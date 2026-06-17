@@ -106,11 +106,7 @@ def guard_url(url: str) -> str | None:
         return None
 
     if host in _METADATA_HOSTS:
-        raise FetchError(
-            "Refusing to fetch cloud metadata service",
-            url=redact_url(url),
-            host=host,
-        )
+        raise FetchError("Refusing to fetch cloud metadata service")
 
     port = parts.port  # may be None; getaddrinfo accepts None for any port
 
@@ -122,8 +118,6 @@ def guard_url(url: str) -> str | None:
         if _is_private_address(str(literal)):
             raise FetchError(
                 "Refusing to fetch private/loopback/link-local address",
-                url=redact_url(url),
-                host=host,
             )
         return str(literal)
 
@@ -135,9 +129,6 @@ def guard_url(url: str) -> str | None:
         if _is_private_address(addr):
             raise FetchError(
                 "Refusing to fetch host that resolves to a private address",
-                url=redact_url(url),
-                host=host,
-                resolved=addr,
             )
 
     return addrs[0]

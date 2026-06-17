@@ -20,7 +20,7 @@ def test_defaults_applied_when_only_url_supplied() -> None:
     assert cfg.overwrite is False
     assert cfg.fetcher == "httpx"
     assert cfg.timeout == 30.0
-    assert cfg.retries == 3
+    assert cfg.retries == 4
     assert cfg.user_agent.startswith("pagetomd/")
     assert cfg.respect_robots is True
     assert cfg.follow_redirects is True
@@ -68,7 +68,6 @@ def test_extra_fields_rejected() -> None:
     """Unknown fields surface as a ConfigError thanks to ``extra='forbid'``."""
     with pytest.raises(ConfigError) as info:
         Config.from_overrides({"url": "https://example.com", "nonsense": True})
-    assert "errors" in info.value.context
     assert isinstance(info.value.__cause__, ValidationError)
 
 
@@ -123,9 +122,7 @@ def test_output_accepts_path() -> None:
 def _assert_user_agent_error(exc: ConfigError) -> None:
     """Assert a ConfigError originated from the ``user_agent`` field validator."""
     assert isinstance(exc.__cause__, ValidationError)
-    errors = exc.context["errors"]
-    assert isinstance(errors, list)
-    assert any("user_agent" in err["loc"] for err in errors), errors
+    assert "user_agent" in str(exc.__cause__)
 
 
 def test_user_agent_valid_value_accepted() -> None:
