@@ -58,6 +58,12 @@ _SPA_MARKERS: Final[tuple[str, ...]] = (
     '<div id="__next"',
     '<div id="__nuxt"',
     "<noscript>you need to enable javascript",
+    # FluidTopics / GWT portals
+    "fluidtopicsclient",
+    "loading application...",
+    # Generic "JS required" noscript patterns
+    "must have javascript enabled",
+    "requires javascript",
 )
 
 _STDOUT_SENTINEL = Path("-")

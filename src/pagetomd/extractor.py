@@ -53,7 +53,12 @@ _DROP_ROLES: Final[frozenset[str]] = frozenset(
 JUNK_PATTERNS: Final[re.Pattern[str]] = re.compile(
     r"\b(cookie|consent|gdpr|newsletter|subscribe|signup|paywall|advert|"
     r"promo|sponsor|share|social|related|recommend|comments?|trending|"
-    r"popular|sidebar|breadcrumb|skip-?(to-)?content)\b",
+    r"popular|sidebar|breadcrumb|skip-?(to-)?content|"
+    # FluidTopics portal UI chrome (repeated around every topic)
+    r"ft-popup-presenter|notificationcenter|drawerlasagna|"
+    r"floating-container|banner-container|application-tools|"
+    r"component-loader|loadingevent|feedback|topic-metadata|"
+    r"designed-header|application-focus|application-switch-focus)\b",
     re.IGNORECASE,
 )
 
@@ -91,6 +96,14 @@ class ExtractedDoc:
 
 def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     """Pre-clean ``doc.html`` then run trafilatura over the result.
+
+    For FluidTopics / Paligo portals the rendered HTML contains many
+    ``<section id="UUID-…">`` elements — one per topic — each wrapped in
+    identical UI chrome (print buttons, feedback dialogs, sign-in modals).
+    Passing the full multi-megabyte blob to trafilatura causes it to pick
+    only one "main content" block and discard the rest.  When UUID sections
+    are detected, each section is extracted individually and the results are
+    concatenated before being returned as a single ``cleaned_html`` string.
 
     Args:
         doc: The :class:`~pagetomd.fetcher.FetchedDoc` from the fetch stage.

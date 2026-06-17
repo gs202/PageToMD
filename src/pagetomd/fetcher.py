@@ -657,6 +657,48 @@ _CHROMIUM_LAUNCH_ARGS: Final[tuple[str, ...]] = (
 )
 
 
+# JavaScript that serializes the full DOM including shadow roots into a single
+# HTML string by walking the *live* tree recursively. ``cloneNode`` does not
+# copy shadow roots, so we must traverse the live nodes and inline each
+# shadow root's children directly. Only a safe subset of attributes is kept
+# (href, src, alt, title, class, id) to keep the output compact.
+_SHADOW_DOM_SERIALIZER: Final[str] = """
+() => {
+    const _SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+    const _VOID = new Set(['area','base','br','col','embed','hr','img','input',
+                           'link','meta','param','source','track','wbr']);
+    const _KEEP_ATTRS = new Set(['href','src','alt','title','class','id']);
+
+    function ser(node) {
+        if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+        const tag = node.tagName;
+        if (_SKIP.has(tag)) return '';
+        const tagL = tag.toLowerCase();
+        let attrs = '';
+        for (const a of node.attributes) {
+            if (_KEEP_ATTRS.has(a.name)) {
+                attrs += ' ' + a.name + '="' + a.value.replace(/"/g, '&quot;') + '"';
+            }
+        }
+        let inner = '';
+        if (node.shadowRoot) {
+            for (const c of node.shadowRoot.childNodes) inner += ser(c);
+        }
+        for (const c of node.childNodes) inner += ser(c);
+        if (_VOID.has(tagL)) return '<' + tagL + attrs + '>';
+        return '<' + tagL + attrs + '>' + inner + '</' + tagL + '>';
+    }
+
+    try {
+        return '<!DOCTYPE html><html>' + ser(document.documentElement) + '</html>';
+    } catch(e) {
+        return null;
+    }
+}
+"""
+
+
 class PlaywrightFetcher:
     """Synchronous Playwright-based fetcher for JavaScript-rendered pages.
 
@@ -775,7 +817,7 @@ class PlaywrightFetcher:
                 page.wait_for_timeout(cfg.playwright_idle_ms)
                 final_url = page.url
                 status_code = response.status if response is not None else 200
-                html = page.content()
+                html = page.evaluate(_SHADOW_DOM_SERIALIZER) or page.content()
                 headers = dict(response.headers) if response is not None else {}
             finally:
                 page.close()
