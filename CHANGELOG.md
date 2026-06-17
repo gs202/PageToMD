@@ -28,5 +28,5 @@ _Nothing yet._
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/pagetomd/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/gs202/pagetomd/releases/tag/v0.1.0
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gs202/PageToMD/releases/tag/v0.1.0

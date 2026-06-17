@@ -68,10 +68,10 @@ dev = [
 pagetomd = "pagetomd.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/gs202/pagetomd"
-Repository = "https://github.com/gs202/pagetomd"
-Issues = "https://github.com/gs202/pagetomd/issues"
-Changelog = "https://github.com/gs202/pagetomd/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/gs202/PageToMD"
+Repository = "https://github.com/gs202/PageToMD"
+Issues = "https://github.com/gs202/PageToMD/issues"
+Changelog = "https://github.com/gs202/PageToMD/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 source = "vcs"

@@ -4,7 +4,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/pagetomd?color=%2334D058&label=pypi%20package)](https://pypi.org/project/pagetomd/)
 [![Python versions](https://img.shields.io/pypi/pyversions/pagetomd?color=%2334D058)](https://pypi.org/project/pagetomd/)
-[![CI](https://github.com/gs202/pagetomd/actions/workflows/ci.yml/badge.svg)](https://github.com/gs202/pagetomd/actions/workflows/ci.yml)
+[![CI](https://github.com/gs202/PageToMD/actions/workflows/ci.yml/badge.svg)](https://github.com/gs202/PageToMD/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](LICENSE)
 [![Total Downloads](https://img.shields.io/pepy/dt/pagetomd?color=%2334D058)](https://pepy.tech/project/pagetomd)
 
@@ -177,7 +177,7 @@ CI enforces both a project-wide test coverage floor of **85%** and a per-module 
 ## Contributing
 
 ```bash
-git clone https://github.com/gs202/pagetomd.git
+git clone https://github.com/gs202/PageToMD.git
 cd pagetomd
 uv sync --extra dev --extra playwright
 pre-commit install
