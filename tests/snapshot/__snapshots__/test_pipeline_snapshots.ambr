@@ -504,7 +504,8 @@
   
   The third table has eight columns and is unambiguously wider than any reasonable terminal can render. It exercises the wide-table fallback strategies. Under`kv`the table should be rendered as a sequence of key-value lists, one per row. Under`html`the original markup should be preserved verbatim. Under`drop`the table should be replaced by a short placeholder noting that a wide table was omitted.
   
-  <table><tr>
+  <table>
+  <tr>
   <th>Date</th>
   <th>Region</th>
   <th>Product</th>
@@ -543,7 +544,8 @@
   <td>$6800</td>
   <td>$4250</td>
   <td>Promo</td>
-  </tr></table>
+  </tr>
+  </table>
   
   The closing paragraph is here primarily so that the article body extends past the final table, which helps trafilatura recognise the table as part of the article rather than as trailing boilerplate. In practice this kind of padding is almost always present in real-world pages, but in synthetic fixtures it has to be added explicitly.
   

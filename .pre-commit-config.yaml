@@ -16,7 +16,7 @@ repos:
         files: ^src/
         # mypy is run in parallel by pre-commit (one invocation per
         # changed file) which triggers non-deterministic INTERNAL ERRORs
-        # in mypy 1.x on Python 3.13. Run as a single process instead.
+        # in mypy 1.x. Run as a single process instead.
         require_serial: true
 
   - repo: https://github.com/Yelp/detect-secrets

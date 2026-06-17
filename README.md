@@ -30,6 +30,19 @@ pipx inject pagetomd playwright && playwright install chromium
 
 ```bash
 uv tool install pagetomd
+# optional: enable JS rendering for SPAs
+uv tool install 'pagetomd[playwright]' && playwright install chromium
+```
+
+### Without installing (uv run)
+
+```bash
+# Core — no install required
+uv run --with pagetomd pagetomd https://example.com
+
+# With Playwright for SPA / JS-heavy pages (install Chromium once first)
+uv run --with playwright playwright install chromium
+uv run --with 'pagetomd[playwright]' pagetomd https://example.com --fetcher auto
 ```
 
 ### With pip
