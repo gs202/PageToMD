@@ -752,7 +752,7 @@ _SHADOW_DOM_SERIALIZER: Final[str] = """
     const _SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
     const _VOID = new Set(['area','base','br','col','embed','hr','img','input',
                            'link','meta','param','source','track','wbr']);
-    const _KEEP_ATTRS = new Set(['href','src','alt','title','class','id']);
+    const _KEEP_ATTRS = new Set(['href','src','alt','title','class','id','name','content']);
 
     function ser(node) {
         if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
