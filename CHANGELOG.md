@@ -13,14 +13,23 @@ _Nothing yet._
 
 ### Added
 
-- **`uv run` usage** — README now documents how to run `pagetomd` without installing it via `uv run --with pagetomd pagetomd <url>`, including the Playwright variant for SPA pages.
-- **`uv tool install` Playwright note** — README install section now shows the `uv tool install 'pagetomd[playwright]'` command alongside the Chromium install step.
-- **`pytest-xdist`** — parallel test execution via `-n auto --dist=loadscope`; unit tests now complete in ~2.5s locally.
+- **Site crawl (`--crawl`)** — BFS-crawl every same-subtree link under a seed URL and write one `.md` file per page into a directory that mirrors the URL hierarchy. Configurable via `--crawl-depth N` (default 1) and `--overwrite`. A single fetcher context is reused across the whole crawl, so Playwright doesn't relaunch Chromium per page.
+- **Shadow DOM / FluidTopics support** — the Playwright fetcher now serialises shadow roots recursively, capturing content inside Web Components that the static DOM misses entirely.
+- **"Choosing a mode" README section** — new decision table and prose explaining when to use `httpx`, `playwright`, `auto`, and `--crawl`.
+- **`uv run` usage** — README now documents how to run `pagetomd` without installing via `uv run --with pagetomd`.
+- **`pytest-xdist`** — parallel test execution via `-n auto --dist=loadscope`.
 
 ### Changed
 
-- **Python 3.12+** — minimum supported Python version lowered from 3.13 to 3.12.
+- **Python 3.12+** — minimum supported version lowered from 3.13 to 3.12.
+- **Exponential backoff ceiling** — raised from 8 s to 60 s so rate-limited sites (429/503) get longer breathing room between retries.
 - **CI** — all jobs now use `astral-sh/setup-uv` with `python-version` input directly, removing the separate `actions/setup-python` step.
+- **Dependencies** — bumped `markdownify` to 1.x and updated the converter for its new API; bumped GitHub Actions to latest.
+
+### Fixed
+
+- **Shadow-DOM serializer** — `<meta>` `name` and `content` attributes are now preserved during serialisation (previously dropped).
+- **Converter** — updated for `markdownify` 1.x breaking changes; fixed mypy overrides; regenerated snapshots.
 
 ## [0.1.0] - 2026-06-16
 

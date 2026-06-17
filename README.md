@@ -176,7 +176,7 @@ description: A retrospective on migrating our monorepo build pipeline from Pytho
 site_name: Example Engineering Blog
 language: en
 tool: pagetomd
-tool_version: 0.1.0
+tool_version: 0.2.0
 ---
 
 # Why We Rewrote Our Build System in Rust
