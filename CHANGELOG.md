@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.1.1] - 2026-06-17
+
+### Added
+
+- **`uv run` usage** — README now documents how to run `pagetomd` without installing it via `uv run --with pagetomd pagetomd <url>`, including the Playwright variant for SPA pages.
+- **`uv tool install` Playwright note** — README install section now shows the `uv tool install 'pagetomd[playwright]'` command alongside the Chromium install step.
+
 ## [0.1.0] - 2026-06-16
 
 ### Added
@@ -28,5 +35,6 @@ _Nothing yet._
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/gs202/PageToMD/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/gs202/PageToMD/releases/tag/v0.1.0
