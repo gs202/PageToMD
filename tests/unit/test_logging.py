@@ -61,7 +61,6 @@ def test_filtering_suppresses_debug_when_level_is_warning(
     assert "visible" in captured.err
 
 
-
 def test_get_logger_returns_bound_logger() -> None:
     """get_logger returns a structlog BoundLogger that carries bound context."""
     configure_logging("info")

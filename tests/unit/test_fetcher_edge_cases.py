@@ -176,7 +176,6 @@ def test_clean_body_does_not_log_mojibake() -> None:
     assert "fetch.mojibake_detected" not in events
 
 
-
 def test_warn_on_mojibake_skips_tiny_bodies() -> None:
     """Bodies under 100 chars produce no mojibake warning log."""
     from pagetomd.fetcher import _warn_on_mojibake

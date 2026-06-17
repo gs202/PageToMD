@@ -344,9 +344,6 @@ def test_missing_content_type_logs_warning(cfg: Config) -> None:
     assert doc.html == "<html>x</html>"
 
 
-
-
-
 def test_is_ssl_cert_error_detects_wrapped_ssl_error() -> None:
     """``_is_ssl_cert_error`` detects SSL errors wrapped in ConnectError."""
     import ssl as _ssl
@@ -438,8 +435,8 @@ def _respx_clean() -> Iterator[None]:
 def test_ssrf_safe_transport_rewrites_url_and_sets_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     """SSRFSafeTransport rewrites the request URL to the validated IP,
     sets Host and sni_hostname."""
-    from pagetomd.fetcher import SSRFSafeTransport
     import pagetomd.fetcher
+    from pagetomd.fetcher import SSRFSafeTransport
 
     # Mock guard_url to return a specific IP address
     monkeypatch.setattr(pagetomd.fetcher, "guard_url", lambda url: "1.1.1.1")

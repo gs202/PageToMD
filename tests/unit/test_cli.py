@@ -7,7 +7,7 @@ exit-code mapping, and stderr/stdout discipline.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -382,9 +382,6 @@ def test_unexpected_runtime_error_wrapped_to_exit_1(
 
     assert result.exit_code == 1
     assert "error: PageToMdError:" in result.stderr
-
-
-
 
 
 def test_stdout_sink_with_overwrite(

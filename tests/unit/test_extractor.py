@@ -6,12 +6,9 @@ import dataclasses
 
 import pytest
 
-from pagetomd.config import Config
 from pagetomd.exceptions import ExtractionEmptyError
 from pagetomd.extractor import ExtractedDoc, extract
-from pagetomd.fetcher import FetchedDoc
 from tests.conftest import make_config, make_fetched_doc
-
 
 # A reasonably long article body — trafilatura ignores tiny inputs.
 _BODY = (
@@ -290,6 +287,7 @@ def test_preclean_lang_annotation(
     html_snippet: str, expected_langs: list[str], expected_count: int
 ) -> None:
     from pagetomd.extractor import _preclean
+
     html = f"<html><body>{html_snippet}</body></html>"
     cleaned, removed = _preclean(html, include_comments=True)
     for lang in expected_langs:
@@ -353,4 +351,5 @@ def test_extract_ignores_empty_base_href() -> None:
 )
 def test_extract_base_href_helper(html: str, expected: str | None) -> None:
     from pagetomd.extractor import _extract_base_href
+
     assert _extract_base_href(html) == expected

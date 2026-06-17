@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from pagetomd import fetcher as fetcher_module
-from pagetomd.config import Config
 from pagetomd.exceptions import DependencyMissingError
 from tests.conftest import make_config
 

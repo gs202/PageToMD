@@ -23,7 +23,6 @@ from pagetomd.fetcher import FetchedDoc
 from pagetomd.pipeline import PipelineResult, run
 from tests.conftest import make_config, make_fetched_doc
 
-
 _BODY_TEMPLATE = (
     "This is meaningful article body text marker-{marker} that exists to "
     "give the extractor enough material to identify as the main article "
@@ -200,9 +199,7 @@ def test_run_default_output_path(
     [(True, False), (False, True)],
     ids=["omitted", "included"],
 )
-def test_run_fetched_at_field(
-    tmp_path: Path, no_fetched_at: bool, expect_present: bool
-) -> None:
+def test_run_fetched_at_field(tmp_path: Path, no_fetched_at: bool, expect_present: bool) -> None:
     """fetched_at: appears iff no_fetched_at is False."""
     config = make_config(output=tmp_path / "out.md", no_fetched_at=no_fetched_at)
     fetcher = FakeFetcher(marker=f"fetched-at-{no_fetched_at}")
@@ -346,9 +343,7 @@ def test_run_httpx_fetcher_context_managed(
     ],
     ids=["success", "failure"],
 )
-def test_run_clears_contextvars(
-    tmp_path: Path, exc: Exception | None, raises: bool
-) -> None:
+def test_run_clears_contextvars(tmp_path: Path, exc: Exception | None, raises: bool) -> None:
     """Contextvars are cleared regardless of pipeline outcome."""
     config = make_config(output=tmp_path / "out.md")
     fetcher = FakeFetcher(exc=exc, marker="ctxvars") if exc else FakeFetcher(marker="ctxvars")
@@ -387,11 +382,16 @@ def test_run_emits_pipeline_start_and_ok(tmp_path: Path) -> None:
     [
         (None, "https://example.com/x", "https://example.com/x"),
         ("/assets/", "https://example.com/post", "https://example.com/assets/"),
-        ("https://cdn.example.com/site/", "https://origin.example.test/page", "https://cdn.example.com/site/"),
+        (
+            "https://cdn.example.com/site/",
+            "https://origin.example.test/page",
+            "https://cdn.example.com/site/",
+        ),
     ],
     ids=["no_base_href", "relative_base_href", "absolute_base_href"],
 )
 def test_resolve_base_url(base_href: str | None, final_url: str, expected: str) -> None:
     """_resolve_base_url correctly resolves all three base-href cases."""
     from pagetomd.pipeline import _resolve_base_url
+
     assert _resolve_base_url(base_href=base_href, final_url=final_url) == expected

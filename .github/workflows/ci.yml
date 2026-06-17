@@ -31,6 +31,10 @@ jobs:
         # First pass lets auto-fix hooks (ruff --fix, ruff-format) modify
         # files. Second pass verifies everything is clean. This two-pass
         # approach avoids false failures from auto-fix-only hooks.
+        # ``no-commit-to-branch`` is skipped in CI — it always fails on
+        # ``main`` because the lint job runs on the merged commit.
+        env:
+          SKIP: no-commit-to-branch
         run: uv run pre-commit run --all-files || uv run pre-commit run --all-files
 
   # ---------------------------------------------------------------------------

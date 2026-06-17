@@ -6,8 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from pagetomd.config import Config
-from pagetomd.converter import WIDE_TABLE_COL_THRESHOLD, convert
+from pagetomd.converter import convert
 from pagetomd.exceptions import ConversionError
 from tests.conftest import make_config
 
@@ -254,9 +253,6 @@ def test_markdownify_failure_wrapped_as_conversion_error(
     assert excinfo.value.context["original"] == "markdownify exploded"
 
 
-
-
-
 def test_empty_pre_returns_empty_string() -> None:
     """An empty ``<pre>`` produces no fenced block."""
     md = convert("<p>before</p><pre></pre><p>after</p>", make_config())
@@ -317,8 +313,6 @@ def test_kv_mode_with_no_rows_returns_empty_string() -> None:
     converter.pagetomd_config = make_config()  # type: ignore[assignment]
     assert table is not None
     assert converter._render_table_as_kv(table) == ""
-
-
 
 
 def test_tei_narrow_table_renders_as_gfm_pipe() -> None:
@@ -408,17 +402,17 @@ def _wide_html_table(row_cells_html: str) -> str:
         ),
         (
             '<td OnError="x">a</td><td OnMouseOver="y">b</td>'
-            '<td>c</td><td>d</td><td>e</td><td>f</td>',
+            "<td>c</td><td>d</td><td>e</td><td>f</td>",
             ["onerror", "onmouseover", '"x"', '"y"'],
         ),
         (
             '<td><a href="javascript:alert(1)">click</a></td>'
-            '<td>b</td><td>c</td><td>d</td><td>e</td><td>f</td>',
+            "<td>b</td><td>c</td><td>d</td><td>e</td><td>f</td>",
             ["javascript:", "alert(1)"],
         ),
         (
             '<td><a href="JAVASCRIPT:alert(1)">click</a></td>'
-            '<td>b</td><td>c</td><td>d</td><td>e</td><td>f</td>',
+            "<td>b</td><td>c</td><td>d</td><td>e</td><td>f</td>",
             ["javascript:", "alert(1)"],
         ),
     ],

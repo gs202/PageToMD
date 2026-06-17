@@ -279,9 +279,6 @@ def test_slugify_is_pure() -> None:
     assert a == b
 
 
-
-
-
 def test_slugify_does_not_suffix_non_reserved_prefix() -> None:
     """Only exact matches trigger the suffix — ``CONference`` is left alone."""
     path = slugify_default_path(
@@ -512,7 +509,7 @@ _skip_if_no_symlinks = pytest.mark.skipif(
 @pytest.mark.parametrize(
     ("overwrite", "expected_msg_fragment"),
     [
-        (True, None),       # any WriteError is acceptable
+        (True, None),  # any WriteError is acceptable
         (False, "symlink"),
     ],
     ids=["overwrite_true", "overwrite_false"],

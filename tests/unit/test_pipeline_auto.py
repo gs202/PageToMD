@@ -14,7 +14,6 @@ from pagetomd.fetcher import FetchedDoc
 from pagetomd.pipeline import run
 from tests.conftest import make_config, make_fetched_doc
 
-
 _RICH_BODY_TEXT = (
     "This is a real article with plenty of meaningful body text. "
     "It contains many sentences, none of which are SPA placeholders. "
@@ -326,9 +325,7 @@ def test_auto_pipeline_falls_back_on_extraction_empty(
 
     def _init_with_article(self: _FakePlaywright, cfg: Config) -> None:
         original_init(self, cfg)
-        self._doc = make_fetched_doc(
-            _playwright_article_html(), url="https://example.com/x"
-        )
+        self._doc = make_fetched_doc(_playwright_article_html(), url="https://example.com/x")
 
     monkeypatch.setattr(_FakePlaywright, "__init__", _init_with_article)
     monkeypatch.setattr(pipeline, "PlaywrightFetcher", _FakePlaywright)
@@ -390,9 +387,7 @@ def test_auto_pipeline_extraction_empty_no_fallback_for_non_auto(
         run(config)
 
 
-def test_auto_fetch_playwright_method(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_auto_fetch_playwright_method(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``fetch_playwright`` lazily builds and delegates to the playwright backend."""
     config = make_config(
         url="https://example.com/x",
