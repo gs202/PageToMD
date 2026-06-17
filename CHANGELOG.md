@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
-## [0.1.1] - 2026-06-17
+## [0.2.0] - 2026-06-17
 
 ### Added
 
@@ -41,6 +41,6 @@ _Nothing yet._
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/gs202/PageToMD/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/gs202/PageToMD/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gs202/PageToMD/releases/tag/v0.1.0
