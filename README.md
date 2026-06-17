@@ -138,6 +138,29 @@ names (`CON`, `PRN`, …) are escaped per segment.
 A single fetcher context is reused across the whole crawl, so browser
 backends do not relaunch Chromium per page.
 
+## Choosing a mode
+
+`pagetomd` has four ways to turn URLs into Markdown. Pick the one that matches your situation:
+
+| I want to… | Use | Why |
+|---|---|---|
+| Convert a single static page (blog, docs, article) | `pagetomd URL` | Default `httpx` fetcher — fast, no extra deps. |
+| Convert a page that needs JavaScript to render (React, Vue, Angular, Next.js) | `pagetomd URL --fetcher playwright` | Launches headless Chromium so the SPA actually renders. |
+| Convert a page and I'm not sure if it needs JS | `pagetomd URL --fetcher auto` | Tries `httpx` first; falls back to Playwright if the page looks like an empty SPA shell or extraction comes back empty. |
+| Crawl an entire site section into a folder of `.md` files | `pagetomd URL --crawl -o dir/` | BFS-walks every same-subtree link and writes one file per page. Combine with `--fetcher auto` if some pages are JS-rendered. |
+
+### Fetcher details
+
+**`httpx`** (default) — A plain HTTP GET. Sub-second for most pages, handles retries with exponential backoff, honours `Retry-After` on 429/503, enforces `robots.txt`, and follows `<meta http-equiv="refresh">` redirects. No JavaScript execution — if the server sends an empty `<div id="root"></div>` shell, that's all you get.
+
+**`playwright`** — Renders the page in headless Chromium, waits for network idle, then serialises the live DOM (including shadow roots). Use this when you _know_ the page is a SPA. Requires the optional `playwright` extra (`pip install 'pagetomd[playwright]'`) and a one-time `playwright install chromium`. Slower and heavier than `httpx`, but the only way to get content that lives behind a JS framework.
+
+**`auto`** — Fetches with `httpx` first, then inspects the result: if the `<body>` text is under 200 characters _and_ the HTML contains SPA markers (`data-reactroot`, `<div id="__next">`, a "you need to enable javascript" noscript tag, etc.), it re-fetches with Playwright. A second safety net fires if `httpx` returned HTML that _looked_ non-empty but the extractor still couldn't pull any content — Playwright gets a shot then too. Best choice when you're pointed at an unfamiliar URL.
+
+### Single page vs. crawl
+
+Use the **default single-page mode** when you have a specific URL (or a short list piped through a `while read` loop). Use **`--crawl`** when you want every page under a URL prefix — it discovers links automatically, deduplicates, mirrors the URL hierarchy on disk, and reuses a single fetcher context so Playwright doesn't relaunch Chromium per page. See the [crawl cookbook recipe](#crawl-an-entire-documentation-site) for the full flag set.
+
 ## Output shape
 
 Running `pagetomd http://127.0.0.1:8765/blog.html --no-fetched-at -o -` against the `blog.html` fixture prints (first ~15 lines shown):
