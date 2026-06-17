@@ -82,7 +82,7 @@ class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
 
     pagetomd_config: Config
 
-    def convert_pre(self, el: Tag, text: str, convert_as_inline: bool) -> Any:
+    def convert_pre(self, el: Tag, text: str, parent_tags: set[str]) -> Any:
         """Render ``<pre>`` as a fenced code block with an optional language."""
         if _is_pre_wrapper(el):
             return text
@@ -160,7 +160,7 @@ class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
                 return lang
         return ""
 
-    def convert_table(self, el: Tag, text: str, convert_as_inline: bool) -> str:
+    def convert_table(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """Render tables, escalating to wide-table policy when needed."""
         cols = _table_columns(el)
         mode = self.pagetomd_config.wide_tables
@@ -190,7 +190,7 @@ class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
         # the GFM pipe table ourselves from the TEI structure.
         if _is_tei_table(el):
             return self._render_tei_table_as_gfm(el)
-        return super().convert_table(el, text, convert_as_inline)  # type: ignore[no-any-return]
+        return super().convert_table(el, text, parent_tags)  # type: ignore[no-any-return]
 
     def _render_tei_table_as_gfm(self, table_el: Tag) -> str:
         """Render a TEI ``<table>`` as a GitHub-flavoured pipe table."""
@@ -272,7 +272,7 @@ class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
 
         return re.sub(r"\s+", " ", text)
 
-    def convert_code(self, el: Tag, text: str, convert_as_inline: bool) -> str:
+    def convert_code(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """Render inline ``<code>``, widening the backtick fence if needed."""
         if el.parent and el.parent.name == "pre":
             return text
@@ -289,17 +289,17 @@ class PagetomdConverter(MarkdownConverter):  # type: ignore[misc]
 
         return f"{prefix}`{text}`{suffix}"
 
-    def convert_img(self, el: Tag, text: str, convert_as_inline: bool) -> str:
+    def convert_img(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """Strip images entirely when ``include_images`` is false."""
         if not self.pagetomd_config.include_images:
             return ""
-        return super().convert_img(el, text, convert_as_inline)  # type: ignore[no-any-return]
+        return super().convert_img(el, text, parent_tags)  # type: ignore[no-any-return]
 
-    def convert_a(self, el: Tag, text: str, convert_as_inline: bool) -> str:
+    def convert_a(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """Drop the URL but keep the text when ``include_links`` is false."""
         if not self.pagetomd_config.include_links:
             return text
-        return super().convert_a(el, text, convert_as_inline)  # type: ignore[no-any-return]
+        return super().convert_a(el, text, parent_tags)  # type: ignore[no-any-return]
 
 
 def convert(html: str, config: Config) -> str:
