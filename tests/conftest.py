@@ -27,16 +27,22 @@ FIXTURES_DIR: pathlib.Path = pathlib.Path(__file__).parent / "fixtures" / "pages
 def _ssrf_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     """Enable the SSRF guard bypass for tests that reach loopback addresses.
 
-    Uses ``monkeypatch.setattr`` so the flag is an in-process attribute
-    that only exists during test execution and is automatically undone after
-    each test.  This replaces the former ``os.environ`` approach which was
-    production-reachable.
+    Two mechanisms are set so both in-process and subprocess invocations work:
 
-    Tests in ``tests/unit/test_ssrf.py`` that need to exercise the live guard
-    override this with their own ``_clear_bypass`` fixture, which runs *after*
-    this one and resets ``_BYPASS`` back to ``False``.
+    1. ``monkeypatch.setattr`` on ``pagetomd.ssrf._BYPASS`` — covers unit,
+       snapshot, and property tests running inside the pytest process.
+    2. ``PAGETOMD_INTERNAL_SKIP_SSRF=1`` in ``os.environ`` — inherited by any
+       subprocess spawned via ``subprocess.run`` (integration tests).  The env
+       var is only honoured by :func:`pagetomd.ssrf.guard_url` when
+       ``PYTEST_CURRENT_TEST`` is also present, which pytest always ensures,
+       making it production-unreachable.
+
+    Tests in ``tests/unit/test_ssrf.py`` that need the live guard override
+    this with their own ``_clear_bypass`` fixture that runs *after* this one
+    and resets both mechanisms.
     """
     monkeypatch.setattr(pagetomd.ssrf, "_BYPASS", True)
+    monkeypatch.setenv("PAGETOMD_INTERNAL_SKIP_SSRF", "1")
 
 
 @pytest.fixture

@@ -23,9 +23,11 @@ def _clear_bypass(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Disable the SSRF bypass and clear the ``_resolve_addresses`` LRU cache.
 
     Overrides the session-wide ``_ssrf_bypass`` fixture so that every test
-    in this module exercises the live guard by default.
+    in this module exercises the live guard by default.  Both escape hatches
+    are cleared: the in-process ``_BYPASS`` flag and the subprocess env-var.
     """
     monkeypatch.setattr(pagetomd.ssrf, "_BYPASS", False)
+    monkeypatch.delenv("PAGETOMD_INTERNAL_SKIP_SSRF", raising=False)
     _resolve_addresses.cache_clear()
     yield
     _resolve_addresses.cache_clear()
