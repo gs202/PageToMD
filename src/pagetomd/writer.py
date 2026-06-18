@@ -389,6 +389,14 @@ def _atomic_write(target: Path, document: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, target)
+        # On POSIX, fsync the parent directory so the rename is durable.
+        # ``os.O_DIRECTORY`` is absent on Windows, so guard accordingly.
+        if hasattr(os, "O_DIRECTORY"):
+            dir_fd = os.open(target.parent, os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     except OSError as exc:
         with contextlib.suppress(OSError):
             temp_path.unlink(missing_ok=True)
