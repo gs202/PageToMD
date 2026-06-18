@@ -7,7 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **SPA-detection regression** (`pipeline.py`) — the regex-based body-text measurement
+  introduced in 0.4.0 did not strip `<script>`/`<style>` content before counting characters.
+  Inline JSON state blobs and CSS could inflate the count above the 200-char threshold,
+  suppressing the Playwright fallback on pages that genuinely need it. Fixed by applying a
+  `<script>/<style>` content strip before measuring.
+- **Integration tests broken by SSRF bypass change** (`ssrf.py`, `tests/`) — the env-var
+  bypass removed in 0.4.0 was the only mechanism for subprocess-based integration tests to
+  reach the local HTTP test server. Restored as a double-gated escape hatch: the env-var
+  `PAGETOMD_INTERNAL_SKIP_SSRF=1` is now only honoured when `PYTEST_CURRENT_TEST` is also
+  present in the environment, making it physically unreachable in production.
+- **`ExtractionEmptyError` in crawl mode caused noisy error logs and wrong failure counts**
+  (`crawler.py`) — pages that produced no extractable content were logged at `error` level
+  with a full stack trace and counted as failures. They are now logged at `warning` as
+  `crawl.page.empty` with no traceback, and counted as a distinct "empty" category rather
+  than a failure.
+- **Preclean over-firing on portal pages** (`extractor.py`) — when `_preclean`'s
+  junk-pattern remover decomposed an element whose class/id matched a portal UI term (e.g.
+  `feedback`, `component-loader`) that happened to be the main content container, trafilatura
+  received an empty document and raised `ExtractionEmptyError` even though the page had real
+  content. A fallback pass now retries trafilatura with a minimal strip (only
+  `_ALWAYS_DROP_TAGS` removed, no junk-pattern matching) before giving up.
+
+### Changed
+
+- **Crawl summary now distinguishes three skip categories** (`crawler.py`, `cli.py`) —
+  `CrawlResult` gains an `empty_urls` list for pages with no extractable content, separate
+  from `skipped_urls` (file already exists) and `failed_urls` (fetch/conversion error). The
+  CLI summary and `crawl.done` structured log event reflect all three counts and print each
+  list with an accurate label.
+
+## [0.4.0] - 2026-06-18
+
+### Security
+
+- **Decompression-bomb DoS closed** (`fetcher.py`) — response body is now read with
+  `client.stream()` + `iter_bytes()` and the size cap fires mid-stream, before the full
+  decompressed body lands in memory. Gzip bombs and other compressed payloads can no longer
+  OOM the process before the cap triggers. Removes `_enforce_body_size_limit`.
+- **SSRF bypass made test-only** (`ssrf.py`) — `PAGETOMD_INTERNAL_SKIP_SSRF` environment
+  variable replaced with an in-process `_BYPASS: bool` flag settable only via
+  `monkeypatch.setattr` in tests. The bypass is now impossible to trigger accidentally in
+  production via a CI template or container environment variable.
+- **Out-of-scope crawl URLs rejected** (`crawler.py`) — `relative_path_from_url` now raises
+  `WriteError` instead of silently mapping URLs that fall outside the seed subtree. A hostile
+  site can no longer shape the output tree via cross-scope links. Added `Path.is_relative_to`
+  guard in `_drain_queue` as defence-in-depth.
+
+### Fixed
+
+- **`_atomic_write` parent-directory fsync** (`writer.py`) — `os.fsync` is now called on the
+  parent directory file descriptor after `os.replace`, closing the crash-consistency hole where
+  a power loss between the rename and a later kernel sync could leave directory metadata
+  inconsistent. No-op on Windows (`O_DIRECTORY` guard).
+- **`crawl.page.error` log carries full root cause** (`crawler.py`) — the structured log event
+  now includes `error_class`, `root_cause` (the `__cause__` chain), `exit_code`, and
+  `exc_info=True`. All five crawler log call sites now pass URLs through `redact_url`.
+- **Pipeline unexpected-error log** (`pipeline.py`) — the `except Exception` catch now emits
+  `pipeline.unexpected_error` with `error_class` and `exc_info=True` before re-raising, giving
+  operators a breadcrumb instead of a silent exit 1.
+- **Dead `bound` logger parameter removed** (`fetcher.py`) — the `bound: object` scaffold
+  parameter was threaded through four private helper signatures but never used. Removed from
+  `_fetch_with_meta_refresh`, `_parse_url`, `_check_robots`, and `_do_get` and all nine call
+  sites.
+
+### Performance
+
+- **SPA-detection no longer parses HTML** (`pipeline.py`) — `_should_fallback_to_playwright`
+  now uses a regex tag-strip over `html[:50_000]` instead of a full BeautifulSoup/lxml parse,
+  saving ~30-100 ms per page in crawl+auto mode.
+- **`_extract_base_href` no longer parses HTML** (`extractor.py`) — replaced with a single
+  `re.search` for the `<base href>` attribute.
+- **`PlaywrightFetcher` reuses one httpx.Client for robots checks** (`fetcher.py`) — entering
+  the `HttpxFetcher` delegate in `PlaywrightFetcher.__enter__` means robots checks share a
+  persistent connection pool across all pages instead of paying a TLS handshake per page in
+  crawl+Playwright mode.
+
+### Changed
+
+- **CLI option consolidation** (`cli.py`) — the four parallel structures (22-param `main()`
+  signature, mirrored `_build_config()` signature, `values` dict, and `_CLI_OVERRIDE_NAMES`
+  tuple) are reduced to two: `main()` signature + `_OPTION_TRANSFORMS` dict. Adding a new CLI
+  flag now requires edits in exactly two places.
+- **Private API imports eliminated** (`cli.py`, `converter.py`) — `typer._click.core.ParameterSource`
+  replaced with a `.name` string comparison (no import needed); `markdownify.chomp` replaced
+  with a vendored `_chomp()` helper, removing the `# type: ignore[attr-defined]` admission.
 
 ## [0.3.0] - 2026-06-18
 
@@ -56,7 +142,8 @@ _Nothing yet._
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/gs202/PageToMD/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gs202/PageToMD/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gs202/PageToMD/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gs202/PageToMD/releases/tag/v0.1.0

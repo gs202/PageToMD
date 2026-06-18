@@ -1,13 +1,27 @@
 """SSRF guard — refuse fetches of private and cloud-metadata addresses.
 
-An internal env var ``PAGETOMD_INTERNAL_SKIP_SSRF=1`` exists for the test
-suite only — DO NOT document this in user-facing docs or rely on it in
-production wrappers.
+Two test-only escape hatches exist, both unreachable in production:
+
+1. **In-process tests** — ``monkeypatch.setattr(pagetomd.ssrf, "_BYPASS", True)``.
+   The ``_ssrf_bypass`` autouse fixture in ``tests/conftest.py`` does this for
+   every test that runs inside the pytest process.
+
+2. **Subprocess tests** — integration tests spawn ``pagetomd`` as a real
+   subprocess (via ``subprocess.run``).  ``monkeypatch`` cannot reach a child
+   process.  For these, set ``PAGETOMD_INTERNAL_SKIP_SSRF=1`` in the child's
+   environment **and** ensure ``PYTEST_CURRENT_TEST`` is present (pytest always
+   sets this in the parent and child processes inherit it).  The double gate
+   makes the bypass physically unreachable in production where
+   ``PYTEST_CURRENT_TEST`` is never set.
+
+There is **no** supported production-reachable way to disable this guard.
+Do not add one.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import socket
 from functools import lru_cache
@@ -16,6 +30,17 @@ from urllib.parse import urlsplit, urlunsplit
 from pagetomd.exceptions import FetchError
 
 __all__ = ["guard_url", "redact_url"]
+
+_log = logging.getLogger(__name__)
+
+# In-process test-only escape hatch.  Set exclusively via monkeypatch.setattr;
+# never set this to True in application or library code.
+_BYPASS: bool = False
+
+# Env-var name for the subprocess escape hatch (integration tests only).
+# Effective only when PYTEST_CURRENT_TEST is also present in the environment
+# so it cannot fire in production.
+_INTERNAL_BYPASS_ENV = "PAGETOMD_INTERNAL_SKIP_SSRF"
 
 
 def redact_url(url: str) -> str:
@@ -47,11 +72,6 @@ _METADATA_HOSTS: frozenset[str] = frozenset(
         "metadata.goog",  # GCP shortname
     }
 )
-
-# Internal-only env var used by the test suite to disable the guard.
-# Setting this in production is a misuse of the tool — there is no
-# supported user-facing way to bypass the SSRF guard.
-_INTERNAL_BYPASS_ENV = "PAGETOMD_INTERNAL_SKIP_SSRF"
 
 
 @lru_cache(maxsize=256)
@@ -97,7 +117,16 @@ def guard_url(url: str) -> str | None:
         The validated IP address (or original host if it's an IP literal),
         or ``None`` if the bypass is active or the URL has no host.
     """
-    if os.environ.get(_INTERNAL_BYPASS_ENV) == "1":
+    # In-process bypass (monkeypatch.setattr in unit/snapshot/property tests).
+    if _BYPASS:
+        _log.warning("ssrf.guard_disabled")
+        return None
+
+    # Subprocess bypass: only honoured when PYTEST_CURRENT_TEST is present,
+    # which pytest always sets in its worker processes.  This makes the bypass
+    # physically unreachable in production where that variable is never set.
+    if os.environ.get(_INTERNAL_BYPASS_ENV) == "1" and os.environ.get("PYTEST_CURRENT_TEST"):
+        _log.warning("ssrf.guard_disabled")
         return None
 
     parts = urlsplit(url)

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pagetomd.crawler import CrawlResult, extract_links, relative_path_from_url
+from pagetomd.exceptions import WriteError
 
 # Seed URL used across the link-extraction tests. Trailing slash makes the
 # seed itself the "directory" form so all the canned hrefs that look like
@@ -163,3 +166,27 @@ class TestRelativePathFromUrl:
         assert a == Path("guide/intro.md")
         assert b == Path("api/intro.md")
         assert a != b
+
+    def test_out_of_scope_url_raises_write_error(self) -> None:
+        """A URL that does not share the seed's path prefix must raise WriteError."""
+        with pytest.raises(WriteError, match="Refusing to map out-of-scope URL"):
+            relative_path_from_url(
+                "https://example.com/other/page",
+                seed_url="https://example.com/docs/seed",
+            )
+
+    def test_sibling_url_raises_write_error(self) -> None:
+        """A sibling URL (same parent, different subtree) must raise WriteError."""
+        with pytest.raises(WriteError, match="Refusing to map out-of-scope URL"):
+            relative_path_from_url(
+                "https://example.com/docs/other",
+                seed_url="https://example.com/docs/seed",
+            )
+
+    def test_root_path_outside_seed_subtree_raises_write_error(self) -> None:
+        """A URL whose path is the root and does not share the seed's prefix raises WriteError."""
+        with pytest.raises(WriteError, match="Refusing to map out-of-scope URL"):
+            relative_path_from_url(
+                "https://example.com/",
+                seed_url="https://example.com/docs/seed",
+            )

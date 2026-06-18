@@ -129,7 +129,11 @@ names (`CON`, `PRN`, …) are escaped per segment.
 - `--crawl-depth N` — BFS hop limit from the seed (default: `1`).
   `--crawl-depth 10` against a site that naturally ends at depth 3 simply
   stops when the queue empties; nothing is wasted.
-- `--overwrite` — replace existing `.md` files (default: skip). Skipped and failed URLs are printed at the end of the crawl so you can retry them individually.
+- `--overwrite` — replace existing `.md` files (default: skip). At the end of a crawl,
+  three lists are printed to stderr: pages skipped because the file already exists,
+  pages where no content could be extracted (auth walls, thin nav stubs), and pages
+  that failed with a fetch or conversion error — so you can handle each category
+  appropriately.
 - All other flags (`--fetcher`, `--no-verify-ssl`, `--user-agent`,
   `--retries`, …) apply to every page in the crawl. `--retries` honours
   `Retry-After` headers on 429/503 responses (capped at 5 minutes per
@@ -155,7 +159,7 @@ backends do not relaunch Chromium per page.
 
 **`playwright`** — Renders the page in headless Chromium, waits for network idle, then serialises the live DOM (including shadow roots). Use this when you _know_ the page is a SPA. Requires the optional `playwright` extra (`pip install 'pagetomd[playwright]'`) and a one-time `playwright install chromium`. Slower and heavier than `httpx`, but the only way to get content that lives behind a JS framework.
 
-**`auto`** — Fetches with `httpx` first, then inspects the result: if the `<body>` text is under 200 characters _and_ the HTML contains SPA markers (`data-reactroot`, `<div id="__next">`, a "you need to enable javascript" noscript tag, etc.), it re-fetches with Playwright. A second safety net fires if `httpx` returned HTML that _looked_ non-empty but the extractor still couldn't pull any content — Playwright gets a shot then too. Best choice when you're pointed at an unfamiliar URL.
+**`auto`** — Fetches with `httpx` first, then inspects the result: if the `<body>` text is under 200 characters _and_ the HTML contains SPA markers (`data-reactroot`, `<div id="__next">`, a "you need to enable javascript" noscript tag, etc.), it re-fetches with Playwright. A second safety net fires if `httpx` returned HTML that _looked_ non-empty but the extractor still couldn't pull any content — Playwright gets a shot then too. If Playwright is unavailable, the page is counted as "empty" in the crawl summary rather than a hard failure. Best choice when you're pointed at an unfamiliar URL.
 
 ### Single page vs. crawl
 
@@ -176,7 +180,7 @@ description: A retrospective on migrating our monorepo build pipeline from Pytho
 site_name: Example Engineering Blog
 language: en
 tool: pagetomd
-tool_version: 0.3.0
+tool_version: 0.4.0
 ---
 
 # Why We Rewrote Our Build System in Rust

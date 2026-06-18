@@ -20,9 +20,10 @@ from bs4 import BeautifulSoup
 from slugify import slugify
 
 from pagetomd import pipeline
-from pagetomd.exceptions import PageToMdError, WriteError
+from pagetomd.exceptions import ExtractionEmptyError, PageToMdError, WriteError
 from pagetomd.logging import get_logger
 from pagetomd.pipeline import _select_fetcher
+from pagetomd.ssrf import redact_url
 
 if TYPE_CHECKING:  # pragma: no cover - import only used for type hints
     from pagetomd.config import Config
@@ -58,7 +59,11 @@ class CrawlResult:
     output_dir: Path | None
     output_paths: list[Path] = field(default_factory=list)
     skipped_urls: list[str] = field(default_factory=list)
+    """URLs skipped because the output file already exists (re-run with --overwrite)."""
+    empty_urls: list[str] = field(default_factory=list)
+    """URLs skipped because no extractable content was found (thin/nav/auth-wall pages)."""
     failed_urls: list[str] = field(default_factory=list)
+    """URLs that failed with a fetch or conversion error."""
 
     @property
     def total(self) -> int:
@@ -197,18 +202,20 @@ def relative_path_from_url(url: str, *, seed_url: str) -> Path:
     url_path = url_parts.path
 
     # Compute the part of ``url_path`` that lives under the seed's subtree.
-    # If the URL does not start with the seed root, fall back to the full
-    # URL path so the caller still gets a deterministic file location.
+    # URLs outside the seed's subtree are rejected immediately (see else branch).
     if url_path == seed_path.rstrip("/") or url_path == seed_path:
         # The URL *is* the seed (with or without trailing slash).
         return Path("index.md")
     if url_path.startswith(seed_path):
         relative_raw = url_path[len(seed_path) :]
     else:
-        # Should not normally happen — ``extract_links`` filters by prefix —
-        # but guard so an in-scope check failure does not produce a path
-        # that escapes the output directory.
-        relative_raw = url_path.lstrip("/")
+        # This should never happen — ``extract_links`` already filters out any
+        # URL that does not share the seed's path prefix.  Reaching this branch
+        # means the caller has a bug (or is being driven by a hostile site that
+        # managed to inject a URL past the scope guard).  Raise rather than
+        # silently producing a file inside the output tree, which would mask the
+        # bug and allow an adversary to influence the output layout.
+        raise WriteError(f"Refusing to map out-of-scope URL: {redact_url(url)}")
 
     # A trailing slash means "directory page" → append ``index`` so the
     # last segment becomes the filename stem.
@@ -247,14 +254,16 @@ def _drain_queue(
     crawl_id: str,
     output_paths: list[Path],
     skipped_urls: list[str],
+    empty_urls: list[str],
     failed_urls: list[str],
     failed_depths: dict[str, int],
 ) -> tuple[int, int, int]:
     """Drain *queue* via BFS, fetching and converting each page.
 
-    Mutates *visited*, *output_paths*, *skipped_urls*, *failed_urls*, and
-    *failed_depths* in place.  Returns ``(written, skipped, failed)`` count
-    deltas so the caller can accumulate them.
+    Mutates *visited*, *output_paths*, *skipped_urls*, *empty_urls*,
+    *failed_urls*, and *failed_depths* in place.  Returns
+    ``(written, skipped, failed)`` count deltas so the caller can accumulate
+    them.
 
     Args:
         queue: BFS queue of ``(url, depth)`` tuples to process.
@@ -267,7 +276,8 @@ def _drain_queue(
         max_depth: Maximum BFS depth ceiling.
         crawl_id: Opaque identifier for structured log correlation.
         output_paths: Accumulator for successfully written file paths.
-        skipped_urls: Accumulator for URLs skipped due to existing files.
+        skipped_urls: Accumulator for URLs skipped because output file exists.
+        empty_urls: Accumulator for URLs skipped because no content was found.
         failed_urls: Accumulator for URLs that failed fetch/conversion.
         failed_depths: Map from failed URL to the depth at which it failed;
             populated on ``PageToMdError`` so the retry pass can re-enqueue
@@ -285,12 +295,42 @@ def _drain_queue(
         # Mirror the URL hierarchy as a directory tree under the output
         # dir; the writer's ``_ensure_parent_dir`` (called from
         # ``write_output``) creates every intermediate directory.
-        relative = relative_path_from_url(url, seed_url=seed_url)
+        # ``relative_path_from_url`` raises ``WriteError`` if the URL falls
+        # outside the seed's subtree (caller bug / hostile redirect).
+        try:
+            relative = relative_path_from_url(url, seed_url=seed_url)
+        except WriteError as exc:
+            failed += 1
+            failed_urls.append(url)
+            failed_depths[url] = depth
+            _log.error(
+                "crawl.page.out_of_scope",
+                url=redact_url(url),
+                error=exc.message,
+                crawl_id=crawl_id,
+            )
+            continue
         dest = output_dir / relative
+
+        # Defence-in-depth: confirm the resolved destination is still inside
+        # ``output_dir``.  Slugification already strips dangerous characters,
+        # but this catch-all prevents any future regression from writing files
+        # outside the intended tree.
+        if not dest.resolve().is_relative_to(output_dir.resolve()):
+            failed += 1
+            failed_urls.append(url)
+            failed_depths[url] = depth
+            _log.error(
+                "crawl.page.path_escape",
+                url=redact_url(url),
+                dest=str(dest),
+                crawl_id=crawl_id,
+            )
+            continue
 
         _log.info(
             "crawl.page.start",
-            url=url,
+            url=redact_url(url),
             depth=depth,
             dest=str(dest),
             crawl_id=crawl_id,
@@ -308,9 +348,23 @@ def _drain_queue(
             skipped_urls.append(url)
             _log.warning(
                 "crawl.page.skip",
-                url=url,
+                url=redact_url(url),
                 reason=str(exc),
                 crawl_id=crawl_id,
+            )
+            continue
+        except ExtractionEmptyError as exc:
+            # No extractable content — expected for login walls, redirect
+            # pages, or thin navigational stubs.  Treat as a skip (warn,
+            # don't count as failure, don't emit a traceback).
+            skipped += 1
+            empty_urls.append(url)
+            _log.warning(
+                "crawl.page.empty",
+                url=redact_url(url),
+                depth=depth,
+                crawl_id=crawl_id,
+                error=exc.message,
             )
             continue
         except PageToMdError as exc:
@@ -319,16 +373,21 @@ def _drain_queue(
             failed_depths[url] = depth
             _log.error(
                 "crawl.page.error",
-                url=url,
-                error=str(exc),
+                url=redact_url(url),
+                depth=depth,
                 crawl_id=crawl_id,
+                error_class=type(exc).__name__,
+                error=exc.message,
+                root_cause=repr(exc.__cause__) if exc.__cause__ else None,
+                exit_code=exc.exit_code,
+                exc_info=True,
             )
             continue
 
         written += 1
         if result.output_path:
             output_paths.append(result.output_path)
-        _log.info("crawl.page.ok", url=url, depth=depth, crawl_id=crawl_id)
+        _log.info("crawl.page.ok", url=redact_url(url), depth=depth, crawl_id=crawl_id)
 
         if depth < max_depth:
             # ``PipelineResult.fetched_html`` carries the HTML from the
@@ -347,7 +406,7 @@ def _drain_queue(
                     queue.append((norm, depth + 1))
                     _log.debug(
                         "crawl.link.queued",
-                        url=norm,
+                        url=redact_url(norm),
                         depth=depth + 1,
                         crawl_id=crawl_id,
                     )
@@ -388,6 +447,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
 
     output_paths: list[Path] = []
     skipped_urls: list[str] = []
+    empty_urls: list[str] = []
     failed_urls: list[str] = []
     failed_depths: dict[str, int] = {}
 
@@ -407,6 +467,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
             crawl_id=crawl_id,
             output_paths=output_paths,
             skipped_urls=skipped_urls,
+            empty_urls=empty_urls,
             failed_urls=failed_urls,
             failed_depths=failed_depths,
         )
@@ -454,6 +515,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
                 crawl_id=crawl_id,
                 output_paths=output_paths,
                 skipped_urls=skipped_urls,
+                empty_urls=empty_urls,
                 failed_urls=failed_urls,
                 failed_depths=failed_depths,
             )
@@ -476,6 +538,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
         "crawl.done",
         pages_written=pages_written,
         pages_skipped=pages_skipped,
+        pages_empty=len(empty_urls),
         pages_failed=pages_failed,
         crawl_id=crawl_id,
     )
@@ -486,5 +549,6 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
         output_dir=output_dir,
         output_paths=output_paths,
         skipped_urls=skipped_urls,
+        empty_urls=empty_urls,
         failed_urls=failed_urls,
     )

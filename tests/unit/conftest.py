@@ -27,7 +27,7 @@ def _scrub_pagetomd_env(monkeypatch: pytest.MonkeyPatch) -> None:
     package.
     """
     for key in list(os.environ):
-        if key.startswith("PAGETOMD_") and key != "PAGETOMD_INTERNAL_SKIP_SSRF":
+        if key.startswith("PAGETOMD_"):
             monkeypatch.delenv(key, raising=False)
 
 

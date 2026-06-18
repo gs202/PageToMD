@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gzip
+
 import httpx
 import pytest
 import respx
@@ -394,3 +396,49 @@ def test_successful_fetch_does_not_log_userinfo() -> None:
             text = str(value)
             assert "alice" not in text, f"credential leaked in log entry: {entry!r}"
             assert "secret" not in text, f"credential leaked in log entry: {entry!r}"
+
+
+@respx.mock
+def test_gzip_bomb_oversize_body_raises_fetch_error() -> None:
+    """A gzip-encoded body that decompresses beyond the cap must raise FetchError.
+
+    Regression test for the decompression-bomb DoS vector: the old code used
+    ``client.get()`` + ``resp.content``, which fully buffered the decompressed
+    body before the cap check ran.  The new streaming implementation reads
+    chunks incrementally via ``iter_bytes()`` and aborts as soon as the
+    accumulated size exceeds ``max_body_bytes``.
+
+    The Content-Length header intentionally reflects the *compressed* size
+    (which is below the cap) to confirm that the pre-check alone is
+    insufficient and that the streaming cap is what saves us.
+    """
+    cap = 200
+    cfg = make_config(max_body_bytes=cap)
+
+    # Build a body that compresses small but decompresses to >> cap.
+    raw_body = b"A" * 5_000  # 5 KB uncompressed
+    compressed = gzip.compress(raw_body)
+    assert len(compressed) < cap, (
+        "Sanity: compressed payload must be smaller than the cap so the "
+        "Content-Length pre-check passes and only the streaming cap fires."
+    )
+    assert len(raw_body) > cap, "Sanity: decompressed payload must exceed the cap."
+
+    respx.get("https://example.com/bomb").mock(
+        return_value=httpx.Response(
+            200,
+            content=compressed,
+            headers={
+                "Content-Type": "text/html; charset=utf-8",
+                "Content-Encoding": "gzip",
+                # Advertise the *compressed* size — below the cap — so the
+                # Content-Length pre-check passes and only streaming fires.
+                "Content-Length": str(len(compressed)),
+            },
+        )
+    )
+
+    with pytest.raises(FetchError) as excinfo:
+        HttpxFetcher(cfg).fetch("https://example.com/bomb")
+
+    assert "byte cap" in excinfo.value.message

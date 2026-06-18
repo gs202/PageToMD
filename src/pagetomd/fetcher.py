@@ -272,19 +272,17 @@ class HttpxFetcher:
                 larger than ``Config.max_body_bytes``, or when the HTTP
                 request fails after retries.
         """
-        bound = _log.bind(url=redact_url(url))
-
         # Use the persistent client if we're inside a context manager,
         # otherwise build a one-shot client and tear it down at the end.
         own_client = self._client is None
         client = self._client if self._client is not None else self._build_client()
         try:
-            return self._fetch_with_meta_refresh(client, url, bound)
+            return self._fetch_with_meta_refresh(client, url)
         finally:
             if own_client:
                 client.close()
 
-    def _fetch_with_meta_refresh(self, client: httpx.Client, url: str, bound: object) -> FetchedDoc:
+    def _fetch_with_meta_refresh(self, client: httpx.Client, url: str) -> FetchedDoc:
         """Fetch ``url`` and transparently follow body-level meta-refresh hops.
 
         Capped at :data:`_META_REFRESH_HOP_CAP` hops; each hop is
@@ -293,11 +291,11 @@ class HttpxFetcher:
         current_url = url
         last_doc: FetchedDoc | None = None
         for hop in range(_META_REFRESH_HOP_CAP + 1):
-            parsed = self._parse_url(current_url, bound)
+            parsed = self._parse_url(current_url)
             guard_url(current_url)
             if self._config.respect_robots:
-                self._check_robots(client, parsed, bound)
-            doc = self._do_get(client, current_url, bound)
+                self._check_robots(client, parsed)
+            doc = self._do_get(client, current_url)
             last_doc = doc
 
             if not self._config.follow_redirects or hop == _META_REFRESH_HOP_CAP:
@@ -336,7 +334,7 @@ class HttpxFetcher:
             event_hooks={"response": [_guard_redirect_response]},
         )
 
-    def _parse_url(self, url: str, bound: object) -> _ParsedUrl:
+    def _parse_url(self, url: str) -> _ParsedUrl:
         """Validate ``url`` and return its split components.
 
         Raises:
@@ -366,7 +364,7 @@ class HttpxFetcher:
             raw=url,
         )
 
-    def _check_robots(self, client: httpx.Client, parsed: _ParsedUrl, bound: object) -> None:
+    def _check_robots(self, client: httpx.Client, parsed: _ParsedUrl) -> None:
         """Enforce ``robots.txt`` for ``parsed.raw``."""
         key = (parsed.scheme, parsed.hostname, parsed.port or _default_port(parsed.scheme))
         parser = self._get_or_fetch_robots(client, parsed, key)
@@ -442,20 +440,65 @@ class HttpxFetcher:
         self._robots_cache[key] = parser
         return parser
 
-    def _do_get(self, client: httpx.Client, url: str, bound: object) -> FetchedDoc:
+    def _do_get(self, client: httpx.Client, url: str) -> FetchedDoc:
         """Issue the GET with tenacity-managed retries.
 
         Wraps any final failure in a rich :class:`FetchError`.
+
+        Body size is enforced incrementally during streaming so that a
+        compressed response (e.g. a gzip bomb) cannot exhaust memory before
+        the cap fires.  A ``Content-Length`` pre-check is still performed
+        as a cheap early-exit for uncompressed responses whose headers are
+        trustworthy; it does not protect against chunked-encoded or
+        compressed transfers, hence the streaming cap is always applied.
         """
         attempts = self._config.retries + 1
         attempt_holder: list[int] = [0]
 
-        def _one_attempt() -> httpx.Response:
+        # Mutable list used as a simple out-param from the retry closure so
+        # that metadata captured inside the stream context is available after
+        # the stream closes.  Populated on every successful attempt so that
+        # the last value is always valid when Retrying returns.
+        _result: list[tuple[int, str, str | None, str | None, dict[str, str], bytes]] = []
+
+        def _one_attempt() -> None:
             attempt_holder[0] += 1
-            resp = client.get(url)
-            resp.raise_for_status()
-            self._enforce_body_size_limit(resp, url)
-            return resp
+            cap = self._config.max_body_bytes
+            with client.stream("GET", url) as resp:
+                # --- Content-Length pre-check (cheap early exit) ---
+                cl_raw = resp.headers.get("Content-Length")
+                if cl_raw is not None:
+                    try:
+                        cl = int(cl_raw)
+                    except ValueError:
+                        cl = -1
+                    if cl > cap:
+                        raise FetchError(f"Body exceeds {cap} byte cap")
+
+                resp.raise_for_status()
+
+                # --- Streaming body read with inline size cap ---
+                # Accumulate decompressed bytes chunk by chunk so the cap
+                # fires before the full body is in memory — defeating gzip
+                # bombs and other compressed payloads that would otherwise
+                # slip past the Content-Length pre-check.
+                buf = bytearray()
+                for chunk in resp.iter_bytes():
+                    buf.extend(chunk)
+                    if len(buf) > cap:
+                        raise FetchError(f"Body exceeds {cap} byte cap")
+
+                _result.clear()
+                _result.append(
+                    (
+                        resp.status_code,
+                        str(resp.url),
+                        resp.headers.get("Content-Type"),
+                        resp.encoding,
+                        dict(resp.headers),
+                        bytes(buf),
+                    )
+                )
 
         retrying = Retrying(
             stop=stop_after_attempt(attempts),
@@ -469,7 +512,7 @@ class HttpxFetcher:
         )
 
         try:
-            response: httpx.Response = retrying(_one_attempt)
+            retrying(_one_attempt)
         except httpx.HTTPStatusError as exc:
             safe_url = redact_url(url)
             raise FetchError(
@@ -487,41 +530,26 @@ class HttpxFetcher:
                 )
             raise err from exc
 
-        content_type = response.headers.get("Content-Type")
+        status_code, final_url, content_type, encoding, headers_dict, raw_body = _result[0]
+        body_text = raw_body.decode(encoding or "utf-8", errors="replace")
         self._warn_if_non_html(content_type, url)
-        body_text = response.text
         _warn_on_mojibake(body_text, url)
         _log.info(
             "fetch.ok",
             url=redact_url(url),
-            status_code=response.status_code,
-            final_url=redact_url(str(response.url)),
+            status_code=status_code,
+            final_url=redact_url(final_url),
         )
-        headers_proxy: Mapping[str, str] = types.MappingProxyType(dict(response.headers))
+        headers_proxy: Mapping[str, str] = types.MappingProxyType(headers_dict)
         return FetchedDoc(
             url=url,
-            final_url=str(response.url),
-            status_code=response.status_code,
+            final_url=final_url,
+            status_code=status_code,
             html=body_text,
             content_type=content_type,
-            encoding=response.encoding,
+            encoding=encoding,
             headers=headers_proxy,
         )
-
-    def _enforce_body_size_limit(self, resp: httpx.Response, url: str) -> None:
-        """Raise :class:`FetchError` when the response body exceeds the cap."""
-        cap = self._config.max_body_bytes
-        cl_raw = resp.headers.get("Content-Length")
-        if cl_raw is not None:
-            try:
-                cl = int(cl_raw)
-            except ValueError:  # pragma: no cover - defensive against bad headers
-                cl = -1
-            if cl > cap:
-                raise FetchError(f"Body exceeds {cap} byte cap")
-        actual = len(resp.content)
-        if actual > cap:
-            raise FetchError(f"Body exceeds {cap} byte cap")
 
     @staticmethod
     def _warn_if_non_html(content_type: str | None, url: str) -> None:
@@ -805,7 +833,13 @@ class PlaywrightFetcher:
         self._browser: object | None = None
 
     def __enter__(self) -> PlaywrightFetcher:
-        """Launch Chromium once for the duration of the ``with`` block."""
+        """Launch Chromium once for the duration of the ``with`` block.
+
+        Also enters the robots-delegate so its persistent :class:`httpx.Client`
+        is initialised once and reused across all robots checks, avoiding a
+        fresh TLS handshake per page.
+        """
+        self._robots_delegate.__enter__()
         cm = self._sync_playwright()
         playwright = cm.__enter__()
         self._playwright_cm = cm
@@ -841,8 +875,8 @@ class PlaywrightFetcher:
             finally:
                 self._playwright_cm = None
             _log.debug("fetch.playwright.browser.closed", mode="context_manager")
-        # The robots delegate is transient inside itself; close anyway in
-        # case a caller ever enters it.
+        # Close the robots delegate, which also shuts down its persistent
+        # httpx client when PlaywrightFetcher was used as a context manager.
         self._robots_delegate.close()
 
     def fetch(self, url: str) -> FetchedDoc:
@@ -850,7 +884,7 @@ class PlaywrightFetcher:
 
         Raises :class:`FetchError` on SSRF, robots, or navigation failure.
         """
-        parsed = self._robots_delegate._parse_url(url, bound=None)
+        parsed = self._robots_delegate._parse_url(url)
         guard_url(url)
         self._check_robots_via_httpx(parsed)
 
@@ -873,13 +907,25 @@ class PlaywrightFetcher:
             return self._render(self._browser, url)
 
     def _check_robots_via_httpx(self, parsed: _ParsedUrl) -> None:
-        """Reuse :class:`HttpxFetcher`'s robots logic without launching Chromium."""
+        """Reuse :class:`HttpxFetcher`'s robots logic without launching Chromium.
+
+        When ``PlaywrightFetcher`` is used as a context manager, the delegate's
+        persistent ``_client`` is already open (initialised in ``__enter__``)
+        and is reused here, avoiding a fresh TLS handshake per page.  In
+        transient (one-shot) mode the delegate has no persistent client, so a
+        short-lived client is built and closed as before.
+        """
         if not self._config.respect_robots:
             return
         delegate = self._robots_delegate
+        if delegate._client is not None:
+            # Reuse the persistent client opened in __enter__.
+            delegate._check_robots(delegate._client, parsed)
+            return
+        # Transient mode: build a one-shot client.
         client = delegate._build_client()
         try:
-            delegate._check_robots(client, parsed, bound=None)
+            delegate._check_robots(client, parsed)
         finally:
             client.close()
 

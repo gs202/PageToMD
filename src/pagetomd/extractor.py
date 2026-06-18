@@ -125,8 +125,7 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     cleaned_input_html, removed_counts = _preclean(doc.html, config.include_comments)
     bound.debug("extract.preclean.removed", **removed_counts)
 
-    extracted = trafilatura.extract(
-        cleaned_input_html,
+    _trafilatura_kwargs: dict[str, object] = dict(
         output_format="html",
         with_metadata=True,
         include_comments=config.include_comments,
@@ -137,6 +136,28 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
         favor_recall=True,
         url=doc.final_url,
     )
+    extracted = trafilatura.extract(cleaned_input_html, **_trafilatura_kwargs)  # type: ignore[arg-type]
+    if extracted is None or not extracted.strip():
+        # Preclean is a heuristic and can over-fire — e.g. when a portal page's
+        # main content lives inside an element whose class/id matches a junk
+        # pattern, decomposing it leaves trafilatura with nothing to work with.
+        # Fall back to the raw HTML so we always attempt a best-effort
+        # extraction before giving up.
+        bound.debug(
+            "extract.preclean_fallback",
+            reason="trafilatura_returned_none_after_preclean",
+        )
+        # Retry with a minimal strip: remove only _ALWAYS_DROP_TAGS (scripts,
+        # styles, noscripts, iframes, …) but skip the aggressive junk-pattern
+        # and structural-element removal that preclean applies.  This rescues
+        # pages where preclean over-fires on the main content container (e.g.
+        # when its class/id matches a JUNK_PATTERNS term) while still ensuring
+        # that SPA shells — whose only text lives inside <script> bodies or
+        # <noscript> fallbacks — remain correctly empty after the fallback pass.
+        soup_fallback = BeautifulSoup(doc.html, "lxml")
+        for _tag in soup_fallback.find_all(_ALWAYS_DROP_TAGS):
+            _tag.decompose()
+        extracted = trafilatura.extract(str(soup_fallback), **_trafilatura_kwargs)  # type: ignore[arg-type]
     if extracted is None or not extracted.strip():
         raise ExtractionEmptyError("Extractor produced no readable content")
 
@@ -160,23 +181,27 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     return result
 
 
+_RE_BASE_HREF: Final = re.compile(
+    r"""<base\s[^>]*href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""",
+    re.IGNORECASE,
+)
+
+
 def _extract_base_href(html: str) -> str | None:
     """Return the value of ``<base href="…">`` in ``<head>`` if present.
 
     The returned value is whitespace-stripped. Missing / empty hrefs and
     parsing failures resolve to ``None`` so callers always see a usable
     string-or-None contract.
+
+    Uses a regex scan instead of a full HTML parse to avoid the ~30-100 ms
+    lxml overhead on every page in crawl mode.
     """
-    try:
-        soup = BeautifulSoup(html, "lxml")
-    except Exception:  # pragma: no cover - defensive
+    m = _RE_BASE_HREF.search(html)
+    if m is None:
         return None
-    base = soup.find("base", href=True)
-    if not isinstance(base, Tag):
-        return None
-    href = base.get("href")
-    if not isinstance(href, str):
-        return None
+    # Groups: double-quoted, single-quoted, or bare attribute value.
+    href = m.group(1) or m.group(2) or m.group(3) or ""
     stripped = href.strip()
     return stripped or None
 
