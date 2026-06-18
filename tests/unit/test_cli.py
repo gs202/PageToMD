@@ -508,6 +508,7 @@ def fake_crawl(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return state["result"] or CrawlResult(
             pages_written=3,
             pages_skipped=0,
+            pages_empty=0,
             pages_failed=0,
             output_dir=Path("./out"),
         )

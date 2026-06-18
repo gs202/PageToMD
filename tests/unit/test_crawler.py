@@ -68,9 +68,11 @@ def test_extract_links_rejects_seed_siblings() -> None:
 
 
 def test_crawl_result_fields() -> None:
-    r = CrawlResult(pages_written=3, pages_skipped=1, pages_failed=2, output_dir=None)
+    r = CrawlResult(
+        pages_written=3, pages_skipped=1, pages_empty=2, pages_failed=2, output_dir=None
+    )
     assert r.pages_written == 3
-    assert r.total == 6
+    assert r.total == 8
 
 
 # ---------------------------------------------------------------------------

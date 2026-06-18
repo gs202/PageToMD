@@ -55,20 +55,21 @@ class CrawlResult:
 
     pages_written: int
     pages_skipped: int
+    pages_empty: int
     pages_failed: int
     output_dir: Path | None
     output_paths: list[Path] = field(default_factory=list)
     skipped_urls: list[str] = field(default_factory=list)
     """URLs skipped because the output file already exists (re-run with --overwrite)."""
     empty_urls: list[str] = field(default_factory=list)
-    """URLs skipped because no extractable content was found (thin/nav/auth-wall pages)."""
+    """URLs where no extractable content was found (thin/nav/auth-wall pages)."""
     failed_urls: list[str] = field(default_factory=list)
     """URLs that failed with a fetch or conversion error."""
 
     @property
     def total(self) -> int:
-        """Total pages attempted."""
-        return self.pages_written + self.pages_skipped + self.pages_failed
+        """Total pages attempted across all outcome categories."""
+        return self.pages_written + self.pages_skipped + self.pages_empty + self.pages_failed
 
 
 def _normalize_url(url: str) -> str:
@@ -257,13 +258,16 @@ def _drain_queue(
     empty_urls: list[str],
     failed_urls: list[str],
     failed_depths: dict[str, int],
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     """Drain *queue* via BFS, fetching and converting each page.
 
     Mutates *visited*, *output_paths*, *skipped_urls*, *empty_urls*,
     *failed_urls*, and *failed_depths* in place.  Returns
-    ``(written, skipped, failed)`` count deltas so the caller can accumulate
-    them.
+    ``(written, skipped, empty, failed)`` count deltas so the caller can
+    accumulate them.  ``skipped`` and ``empty`` are tracked separately:
+    "skipped" means the output file already exists (replayable with
+    ``--overwrite``), "empty" means the page produced no extractable content
+    (auth wall, nav stub, etc.).
 
     Args:
         queue: BFS queue of ``(url, depth)`` tuples to process.
@@ -284,10 +288,11 @@ def _drain_queue(
             at the original depth.
 
     Returns:
-        A ``(written_delta, skipped_delta, failed_delta)`` tuple.
+        A ``(written_delta, skipped_delta, empty_delta, failed_delta)`` tuple.
     """
     written = 0
     skipped = 0
+    empty = 0
     failed = 0
 
     while queue:
@@ -355,9 +360,10 @@ def _drain_queue(
             continue
         except ExtractionEmptyError as exc:
             # No extractable content — expected for login walls, redirect
-            # pages, or thin navigational stubs.  Treat as a skip (warn,
-            # don't count as failure, don't emit a traceback).
-            skipped += 1
+            # pages, or thin navigational stubs.  Counted in its own
+            # ``empty`` bucket (not ``skipped``) so the summary cleanly
+            # separates "file already exists" from "no content found".
+            empty += 1
             empty_urls.append(url)
             _log.warning(
                 "crawl.page.empty",
@@ -411,7 +417,7 @@ def _drain_queue(
                         crawl_id=crawl_id,
                     )
 
-    return written, skipped, failed
+    return written, skipped, empty, failed
 
 
 def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> CrawlResult:
@@ -456,7 +462,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
 
     # --- Initial pass ---
     with _open_fetcher(config) as fetcher:
-        written, skipped, failed = _drain_queue(
+        written, skipped, empty, failed = _drain_queue(
             queue,
             visited,
             fetcher,
@@ -474,6 +480,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
 
     pages_written = written
     pages_skipped = skipped
+    pages_empty = empty
     pages_failed = failed
 
     # --- Retry pass ---
@@ -504,7 +511,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
         )
 
         with _open_fetcher(config) as fetcher:
-            retry_written, retry_skipped, retry_failed_count = _drain_queue(
+            retry_written, retry_skipped, retry_empty, retry_failed_count = _drain_queue(
                 retry_queue,
                 visited,
                 fetcher,
@@ -522,6 +529,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
 
         pages_written += retry_written
         pages_skipped += retry_skipped
+        pages_empty += retry_empty
         # Replace the initial failure count with the retry-pass outcome.
         # ``failed_urls`` was cleared before the retry pass, so it now
         # contains only URLs that still failed plus any new failures.
@@ -538,13 +546,14 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
         "crawl.done",
         pages_written=pages_written,
         pages_skipped=pages_skipped,
-        pages_empty=len(empty_urls),
+        pages_empty=pages_empty,
         pages_failed=pages_failed,
         crawl_id=crawl_id,
     )
     return CrawlResult(
         pages_written=pages_written,
         pages_skipped=pages_skipped,
+        pages_empty=pages_empty,
         pages_failed=pages_failed,
         output_dir=output_dir,
         output_paths=output_paths,
