@@ -84,7 +84,7 @@ def test_playwright_robots_delegate_is_invoked(
 
     pf = fetcher_module.PlaywrightFetcher(cfg)
 
-    def _record(client: object, parsed: object, bound: object) -> None:
+    def _record(client: object, parsed: object) -> None:
         calls.append(getattr(parsed, "raw", "?"))
 
     monkeypatch.setattr(pf._robots_delegate, "_check_robots", _record)
