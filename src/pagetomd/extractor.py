@@ -147,7 +147,17 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
             "extract.preclean_fallback",
             reason="trafilatura_returned_none_after_preclean",
         )
-        extracted = trafilatura.extract(doc.html, **_trafilatura_kwargs)  # type: ignore[arg-type]
+        # Retry with a minimal strip: remove only _ALWAYS_DROP_TAGS (scripts,
+        # styles, noscripts, iframes, …) but skip the aggressive junk-pattern
+        # and structural-element removal that preclean applies.  This rescues
+        # pages where preclean over-fires on the main content container (e.g.
+        # when its class/id matches a JUNK_PATTERNS term) while still ensuring
+        # that SPA shells — whose only text lives inside <script> bodies or
+        # <noscript> fallbacks — remain correctly empty after the fallback pass.
+        soup_fallback = BeautifulSoup(doc.html, "lxml")
+        for _tag in soup_fallback.find_all(_ALWAYS_DROP_TAGS):
+            _tag.decompose()
+        extracted = trafilatura.extract(str(soup_fallback), **_trafilatura_kwargs)  # type: ignore[arg-type]
     if extracted is None or not extracted.strip():
         raise ExtractionEmptyError("Extractor produced no readable content")
 
