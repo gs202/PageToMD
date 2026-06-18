@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Annotated, Final
 
 import typer
-from typer._click.core import ParameterSource
 
 from pagetomd import __version__
 from pagetomd.config import Config
@@ -409,7 +408,7 @@ def _build_config(
     overrides: dict[str, object] = {"url": url}
     for name in _CLI_OVERRIDE_NAMES:
         source = ctx.get_parameter_source(name)
-        if source is not None and source != ParameterSource.DEFAULT:
+        if source is not None and source.name != "DEFAULT":
             overrides[name] = values[name]
 
     if debug:

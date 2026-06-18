@@ -77,6 +77,27 @@ _URL_ATTRS: Final[frozenset[str]] = frozenset({"href", "src", "xlink:href", "for
 _log = get_logger(__name__)
 
 
+def _chomp(text: str) -> tuple[str, str, str]:
+    """Strip leading/trailing whitespace, returning ``(prefix, stripped, suffix)``.
+
+    Vendored equivalent of ``markdownify.chomp`` to avoid depending on a
+    private/undocumented symbol that is not in ``markdownify.__all__``.
+
+    Args:
+        text: Raw text that may contain surrounding whitespace characters.
+
+    Returns:
+        A three-tuple ``(prefix, stripped, suffix)`` where *prefix* and
+        *suffix* are each either ``" "`` (when the original text started/ended
+        with whitespace) or ``""`` (when it did not), and *stripped* is the
+        text after calling :py:meth:`str.strip`.
+    """
+    prefix = " " if text and text[0] in " \t\r\n" else ""
+    suffix = " " if text and text[-1] in " \t\r\n" else ""
+    text = text.strip()
+    return prefix, suffix, text
+
+
 class PagetomdConverter(MarkdownConverter):
     """Markdownify subclass that injects pagetomd's per-tag rules."""
 
@@ -277,9 +298,7 @@ class PagetomdConverter(MarkdownConverter):
         if el.parent and el.parent.name == "pre":
             return text
 
-        from markdownify import chomp  # type: ignore[attr-defined]
-
-        prefix, suffix, text = chomp(text)
+        prefix, suffix, text = _chomp(text)
         if not text:
             return ""
 
