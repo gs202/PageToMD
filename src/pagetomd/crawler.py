@@ -398,7 +398,6 @@ def _drain_queue(
                 # chance.  False on the second pass (a retry is already a
                 # retry) and when ``--no-retry-failed`` is set.
                 will_retry=will_retry_failures,
-                exc_info=True,
             )
             continue
 
