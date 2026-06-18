@@ -373,7 +373,7 @@ def _drain_queue(
                 error=exc.message,
                 root_cause=repr(exc.__cause__) if exc.__cause__ else None,
                 exit_code=exc.exit_code,
-                exc_info=type(exc) not in (ExtractionEmptyError,),
+                exc_info=True,
             )
             continue
 
