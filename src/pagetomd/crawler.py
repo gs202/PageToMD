@@ -258,6 +258,8 @@ def _drain_queue(
     empty_urls: list[str],
     failed_urls: list[str],
     failed_depths: dict[str, int],
+    pass_name: str = "initial",
+    will_retry_failures: bool = True,
 ) -> tuple[int, int, int, int]:
     """Drain *queue* via BFS, fetching and converting each page.
 
@@ -371,6 +373,10 @@ def _drain_queue(
                 depth=depth,
                 crawl_id=crawl_id,
                 error=exc.message,
+                error_class=type(exc).__name__,
+                exit_code=exc.exit_code,
+                root_cause=repr(exc.__cause__) if exc.__cause__ else None,
+                fetcher=config.fetcher,
             )
             continue
         except PageToMdError as exc:
@@ -386,6 +392,12 @@ def _drain_queue(
                 error=exc.message,
                 root_cause=repr(exc.__cause__) if exc.__cause__ else None,
                 exit_code=exc.exit_code,
+                fetcher=config.fetcher,
+                pass_name=pass_name,
+                # Whether the auto-retry pass will give this URL another
+                # chance.  False on the second pass (a retry is already a
+                # retry) and when ``--no-retry-failed`` is set.
+                will_retry=will_retry_failures,
                 exc_info=True,
             )
             continue
@@ -476,6 +488,8 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
             empty_urls=empty_urls,
             failed_urls=failed_urls,
             failed_depths=failed_depths,
+            pass_name="initial",
+            will_retry_failures=retry_failed,
         )
 
     pages_written = written
@@ -525,6 +539,9 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
                 empty_urls=empty_urls,
                 failed_urls=failed_urls,
                 failed_depths=failed_depths,
+                pass_name="retry",
+                # No further retry after the retry pass — this is the last chance.
+                will_retry_failures=False,
             )
 
         pages_written += retry_written

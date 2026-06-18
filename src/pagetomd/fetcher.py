@@ -955,6 +955,13 @@ class PlaywrightFetcher:
                 # ``raise_for_status()``.
                 if status_code >= 400:
                     safe_url = redact_url(url)
+                    _log.warning(
+                        "fetch.playwright.http_error",
+                        url=safe_url,
+                        final_url=redact_url(final_url),
+                        status_code=status_code,
+                        retryable=status_code in _RETRYABLE_STATUSES,
+                    )
                     err = FetchError(f"HTTP {status_code} for {safe_url}")
                     if status_code in _RETRYABLE_STATUSES:
                         err.hint = (

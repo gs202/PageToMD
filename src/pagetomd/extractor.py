@@ -159,6 +159,14 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
             _tag.decompose()
         extracted = trafilatura.extract(str(soup_fallback), **_trafilatura_kwargs)  # type: ignore[arg-type]
     if extracted is None or not extracted.strip():
+        bound.warning(
+            "extract.empty",
+            raw_html_len=len(doc.html),
+            preclean_html_len=len(cleaned_input_html),
+            status_code=doc.status_code,
+            content_type=doc.content_type,
+            final_url=redact_url(doc.final_url),
+        )
         raise ExtractionEmptyError("Extractor produced no readable content")
 
     meta = _safe_extract_metadata(cleaned_input_html, bound)
