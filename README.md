@@ -6,7 +6,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/pagetomd?color=%2334D058)](https://pypi.org/project/pagetomd/)
 [![CI](https://github.com/gs202/PageToMD/actions/workflows/ci.yml/badge.svg)](https://github.com/gs202/PageToMD/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](LICENSE)
-[![Total Downloads](https://img.shields.io/pepy/dt/pagetomd?color=%2334D058)](https://pepy.tech/project/pagetomd)
+[![Total Downloads](https://static.pepy.tech/badge/pagetomd)](https://pepy.tech/project/pagetomd)
 
 ## Why
 
