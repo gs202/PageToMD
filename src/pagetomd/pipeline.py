@@ -238,6 +238,12 @@ def _select_fetcher(config: Config) -> AbstractContextManager[Fetcher]:
 
 
 _RE_BODY_CONTENT: Final = re.compile(r"<body[^>]*>(.*?)</body>", re.DOTALL | re.IGNORECASE)
+# Strip <script> and <style> blocks (including their text content) before
+# counting visible body text.  Plain tag-stripping (_RE_HTML_TAG) removes
+# angle-bracket tokens but leaves inline JSON / JS / CSS text intact, which
+# can inflate the character count above _SPA_BODY_TEXT_THRESHOLD and cause
+# SPA shells to be misclassified as "content-rich" pages.
+_RE_SCRIPT_STYLE: Final = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE)
 _RE_HTML_TAG: Final = re.compile(r"<[^>]+>")
 
 
@@ -253,10 +259,15 @@ def _should_fallback_to_playwright(html: str) -> bool:
     if not html:
         return False
 
-    # Estimate body text length via regex — strip tags from the body block.
+    # Estimate visible body text length via regex.
+    # 1. Extract the <body> block.
+    # 2. Strip <script>/<style> blocks including their text content — inline
+    #    JSON/JS/CSS can be hundreds of characters and would inflate the count.
+    # 3. Strip remaining HTML tags to leave only visible text nodes.
     body_match = _RE_BODY_CONTENT.search(html)
     if body_match:
-        body_text = _RE_HTML_TAG.sub("", body_match.group(1))
+        body_no_scripts = _RE_SCRIPT_STYLE.sub("", body_match.group(1))
+        body_text = _RE_HTML_TAG.sub("", body_no_scripts)
         body_text_len = len(body_text.strip())
     else:
         body_text_len = 0
