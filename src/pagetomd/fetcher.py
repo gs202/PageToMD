@@ -190,6 +190,27 @@ def _is_retryable_exception(exc: BaseException) -> bool:
     return False
 
 
+def _is_retryable_playwright_exception(exc: BaseException) -> bool:
+    """Return ``True`` when tenacity should retry a Playwright fetch.
+
+    Two categories qualify: ``FetchError`` instances stamped with a
+    ``status_code`` in :data:`_RETRYABLE_STATUSES` (e.g. 429/503 from
+    ``page.goto``), and ``FetchError`` instances wrapping a navigation
+    failure (timeout, connection reset) that can plausibly self-heal on
+    retry.  All other errors (SSRF refusals, robots disallow, etc.) are
+    terminal and surface immediately.
+    """
+    if not isinstance(exc, FetchError):
+        return False
+    status_code = getattr(exc, "status_code", None)
+    if status_code is not None:
+        return bool(status_code in _RETRYABLE_STATUSES)
+    # No status_code attribute → not an HTTP-status FetchError.  Retry only
+    # when the message indicates a navigation failure (the other
+    # ``raise FetchError(...)`` site in PlaywrightFetcher).
+    return exc.message.startswith("Playwright navigation failed")
+
+
 class SSRFSafeTransport(httpx.HTTPTransport):
     """SSRF-safe HTTP transport that prevents DNS rebinding attacks.
 
@@ -930,6 +951,45 @@ class PlaywrightFetcher:
             client.close()
 
     def _render(self, browser: object, url: str) -> FetchedDoc:
+        """Render ``url`` with tenacity-managed retries on transient HTTP errors.
+
+        Mirrors :meth:`HttpxFetcher._do_get` so ``--retries N`` applies
+        uniformly to both fetchers.  Retries fire for 429/503/500/etc. and
+        for navigation failures (timeouts, connection resets); terminal
+        errors like SSRF refusals or robots disallow surface immediately.
+        ``Retry-After`` on 429/503 is honoured via the same wait strategy
+        the httpx fetcher uses.
+        """
+        attempts = self._config.retries + 1
+        attempt_holder: list[int] = [0]
+        result_holder: list[FetchedDoc] = []
+
+        def _one_attempt() -> None:
+            attempt_holder[0] += 1
+            result_holder.clear()
+            result_holder.append(self._render_once(browser, url))
+
+        retrying = Retrying(
+            stop=stop_after_attempt(attempts),
+            wait=_WaitRetryAfterOrExponential(
+                url,
+                wait_exponential(multiplier=2, min=2, max=60),
+            ),
+            retry=retry_if_exception(_is_retryable_playwright_exception),
+            reraise=True,
+            before_sleep=_make_retry_logger(url),
+        )
+
+        try:
+            retrying(_one_attempt)
+        except FetchError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive
+            raise FetchError(f"Playwright render failed: {exc}") from exc
+
+        return result_holder[0]
+
+    def _render_once(self, browser: object, url: str) -> FetchedDoc:
         """Drive the browser, capture the rendered HTML, wrap errors."""
         from playwright.sync_api import Error as PlaywrightError
 
@@ -963,6 +1023,10 @@ class PlaywrightFetcher:
                         retryable=status_code in _RETRYABLE_STATUSES,
                     )
                     err = FetchError(f"HTTP {status_code} for {safe_url}")
+                    # Stamp the status code on the exception so the retry
+                    # predicate in ``_render`` can decide whether to retry
+                    # without parsing the message string.
+                    err.status_code = status_code  # type: ignore[attr-defined]
                     if status_code in _RETRYABLE_STATUSES:
                         err.hint = (
                             f"Server returned {status_code}. The site may be rate-limiting "
