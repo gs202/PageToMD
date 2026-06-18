@@ -833,7 +833,13 @@ class PlaywrightFetcher:
         self._browser: object | None = None
 
     def __enter__(self) -> PlaywrightFetcher:
-        """Launch Chromium once for the duration of the ``with`` block."""
+        """Launch Chromium once for the duration of the ``with`` block.
+
+        Also enters the robots-delegate so its persistent :class:`httpx.Client`
+        is initialised once and reused across all robots checks, avoiding a
+        fresh TLS handshake per page.
+        """
+        self._robots_delegate.__enter__()
         cm = self._sync_playwright()
         playwright = cm.__enter__()
         self._playwright_cm = cm
@@ -869,8 +875,8 @@ class PlaywrightFetcher:
             finally:
                 self._playwright_cm = None
             _log.debug("fetch.playwright.browser.closed", mode="context_manager")
-        # The robots delegate is transient inside itself; close anyway in
-        # case a caller ever enters it.
+        # Close the robots delegate, which also shuts down its persistent
+        # httpx client when PlaywrightFetcher was used as a context manager.
         self._robots_delegate.close()
 
     def fetch(self, url: str) -> FetchedDoc:
@@ -901,10 +907,22 @@ class PlaywrightFetcher:
             return self._render(self._browser, url)
 
     def _check_robots_via_httpx(self, parsed: _ParsedUrl) -> None:
-        """Reuse :class:`HttpxFetcher`'s robots logic without launching Chromium."""
+        """Reuse :class:`HttpxFetcher`'s robots logic without launching Chromium.
+
+        When ``PlaywrightFetcher`` is used as a context manager, the delegate's
+        persistent ``_client`` is already open (initialised in ``__enter__``)
+        and is reused here, avoiding a fresh TLS handshake per page.  In
+        transient (one-shot) mode the delegate has no persistent client, so a
+        short-lived client is built and closed as before.
+        """
         if not self._config.respect_robots:
             return
         delegate = self._robots_delegate
+        if delegate._client is not None:
+            # Reuse the persistent client opened in __enter__.
+            delegate._check_robots(delegate._client, parsed)
+            return
+        # Transient mode: build a one-shot client.
         client = delegate._build_client()
         try:
             delegate._check_robots(client, parsed)
