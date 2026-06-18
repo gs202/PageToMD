@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.0] - 2026-06-18
+
 ### Added
 
 - **Auto-retry failed crawl pages (`--retry-failed`)** — after a `--crawl` run, pages that failed (fetch or conversion error) are automatically retried once with a fresh fetcher context. Successes are removed from the failed list; persistent failures remain. Disable with `--no-retry-failed`.
@@ -52,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/gs202/PageToMD/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gs202/PageToMD/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gs202/PageToMD/releases/tag/v0.1.0
