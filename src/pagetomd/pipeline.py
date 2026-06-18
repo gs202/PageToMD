@@ -6,6 +6,7 @@ are wrapped as :class:`~pagetomd.exceptions.PageToMdError`.
 
 from __future__ import annotations
 
+import re
 import secrets
 import types
 from contextlib import AbstractContextManager
@@ -15,7 +16,6 @@ from typing import Final
 from urllib.parse import urljoin
 
 import structlog
-from bs4 import BeautifulSoup
 
 from pagetomd.config import Config
 from pagetomd.converter import convert
@@ -124,6 +124,11 @@ def run(config: Config, *, fetcher: Fetcher | None = None) -> PipelineResult:
     except PageToMdError:
         raise
     except Exception as exc:
+        log.error(
+            "pipeline.unexpected_error",
+            error_class=type(exc).__name__,
+            exc_info=True,
+        )
         raise PageToMdError("Unexpected pipeline failure") from exc
     finally:
         structlog.contextvars.clear_contextvars()
@@ -232,23 +237,30 @@ def _select_fetcher(config: Config) -> AbstractContextManager[Fetcher]:
     raise ValueError(f"Unknown fetcher: {config.fetcher}")  # pragma: no cover
 
 
+_RE_BODY_CONTENT: Final = re.compile(r"<body[^>]*>(.*?)</body>", re.DOTALL | re.IGNORECASE)
+_RE_HTML_TAG: Final = re.compile(r"<[^>]+>")
+
+
 def _should_fallback_to_playwright(html: str) -> bool:
     """Return ``True`` when ``html`` looks like an unrendered SPA shell.
 
     Requires both a sparse ``<body>`` (below :data:`_SPA_BODY_TEXT_THRESHOLD`)
     and at least one SPA marker to fire, keeping the false-positive rate low.
+
+    Uses substring/regex scanning instead of a full HTML parse to avoid the
+    ~30-100 ms lxml overhead on every auto-fetcher page.
     """
     if not html:
         return False
 
-    # Extract body text via bs4 with lxml to mirror the extractor's
-    # parser choice (avoids subtle differences in entity handling).
-    try:
-        soup = BeautifulSoup(html, "lxml")
-    except Exception:  # pragma: no cover - defensive against bad input
-        return False
-    body = soup.body
-    body_text_len = len(body.get_text(strip=True)) if body is not None else 0
+    # Estimate body text length via regex — strip tags from the body block.
+    body_match = _RE_BODY_CONTENT.search(html)
+    if body_match:
+        body_text = _RE_HTML_TAG.sub("", body_match.group(1))
+        body_text_len = len(body_text.strip())
+    else:
+        body_text_len = 0
+
     if body_text_len >= _SPA_BODY_TEXT_THRESHOLD:
         return False
 

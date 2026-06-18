@@ -160,23 +160,27 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     return result
 
 
+_RE_BASE_HREF: Final = re.compile(
+    r"""<base\s[^>]*href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""",
+    re.IGNORECASE,
+)
+
+
 def _extract_base_href(html: str) -> str | None:
     """Return the value of ``<base href="…">`` in ``<head>`` if present.
 
     The returned value is whitespace-stripped. Missing / empty hrefs and
     parsing failures resolve to ``None`` so callers always see a usable
     string-or-None contract.
+
+    Uses a regex scan instead of a full HTML parse to avoid the ~30-100 ms
+    lxml overhead on every page in crawl mode.
     """
-    try:
-        soup = BeautifulSoup(html, "lxml")
-    except Exception:  # pragma: no cover - defensive
+    m = _RE_BASE_HREF.search(html)
+    if m is None:
         return None
-    base = soup.find("base", href=True)
-    if not isinstance(base, Tag):
-        return None
-    href = base.get("href")
-    if not isinstance(href, str):
-        return None
+    # Groups: double-quoted, single-quoted, or bare attribute value.
+    href = m.group(1) or m.group(2) or m.group(3) or ""
     stripped = href.strip()
     return stripped or None
 
