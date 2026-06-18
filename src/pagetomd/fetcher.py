@@ -190,6 +190,27 @@ def _is_retryable_exception(exc: BaseException) -> bool:
     return False
 
 
+def _is_retryable_playwright_exception(exc: BaseException) -> bool:
+    """Return ``True`` when tenacity should retry a Playwright fetch.
+
+    Two categories qualify: ``FetchError`` instances stamped with a
+    ``status_code`` in :data:`_RETRYABLE_STATUSES` (e.g. 429/503 from
+    ``page.goto``), and ``FetchError`` instances wrapping a navigation
+    failure (timeout, connection reset) that can plausibly self-heal on
+    retry.  All other errors (SSRF refusals, robots disallow, etc.) are
+    terminal and surface immediately.
+    """
+    if not isinstance(exc, FetchError):
+        return False
+    status_code = getattr(exc, "status_code", None)
+    if status_code is not None:
+        return bool(status_code in _RETRYABLE_STATUSES)
+    # No status_code attribute → not an HTTP-status FetchError.  Retry only
+    # when the message indicates a navigation failure (the other
+    # ``raise FetchError(...)`` site in PlaywrightFetcher).
+    return exc.message.startswith("Playwright navigation failed")
+
+
 class SSRFSafeTransport(httpx.HTTPTransport):
     """SSRF-safe HTTP transport that prevents DNS rebinding attacks.
 
@@ -508,7 +529,7 @@ class HttpxFetcher:
             ),
             retry=retry_if_exception(_is_retryable_exception),
             reraise=True,
-            before_sleep=_make_retry_logger(url),
+            before_sleep=_make_retry_logger(url, attempts),
         )
 
         try:
@@ -580,21 +601,29 @@ def _default_port(scheme: str) -> int:
     return 443 if scheme == "https" else 80
 
 
-def _make_retry_logger(url: str) -> Callable[[RetryCallState], None]:
-    """Build a tenacity ``before_sleep`` hook that logs each retry attempt."""
+def _make_retry_logger(url: str, total_attempts: int) -> Callable[[RetryCallState], None]:
+    """Build a tenacity ``before_sleep`` hook that logs each retry attempt.
+
+    Logs at ``info`` level so retry progress is visible in default runs
+    (``debug`` was effectively invisible to operators watching a slow
+    crawl).  ``total_attempts`` is rendered as the denominator of an
+    ``attempt/total`` pair so the user can see how close they are to the
+    per-page retry budget at a glance.
+    """
 
     def _hook(retry_state: RetryCallState) -> None:
         outcome = retry_state.outcome
         error: str | None = None
         if outcome is not None and outcome.failed:
             error = repr(outcome.exception())
-        _log.debug(
+        next_wait = (
+            round(retry_state.next_action.sleep, 2) if retry_state.next_action is not None else None
+        )
+        _log.info(
             "fetch.retry",
             url=redact_url(url),
-            attempt=retry_state.attempt_number,
-            next_wait_s=round(retry_state.next_action.sleep, 2)
-            if retry_state.next_action is not None
-            else None,
+            attempt=f"{retry_state.attempt_number}/{total_attempts}",
+            next_wait_s=next_wait,
             error=error,
         )
 
@@ -930,6 +959,45 @@ class PlaywrightFetcher:
             client.close()
 
     def _render(self, browser: object, url: str) -> FetchedDoc:
+        """Render ``url`` with tenacity-managed retries on transient HTTP errors.
+
+        Mirrors :meth:`HttpxFetcher._do_get` so ``--retries N`` applies
+        uniformly to both fetchers.  Retries fire for 429/503/500/etc. and
+        for navigation failures (timeouts, connection resets); terminal
+        errors like SSRF refusals or robots disallow surface immediately.
+        ``Retry-After`` on 429/503 is honoured via the same wait strategy
+        the httpx fetcher uses.
+        """
+        attempts = self._config.retries + 1
+        attempt_holder: list[int] = [0]
+        result_holder: list[FetchedDoc] = []
+
+        def _one_attempt() -> None:
+            attempt_holder[0] += 1
+            result_holder.clear()
+            result_holder.append(self._render_once(browser, url))
+
+        retrying = Retrying(
+            stop=stop_after_attempt(attempts),
+            wait=_WaitRetryAfterOrExponential(
+                url,
+                wait_exponential(multiplier=2, min=2, max=60),
+            ),
+            retry=retry_if_exception(_is_retryable_playwright_exception),
+            reraise=True,
+            before_sleep=_make_retry_logger(url, attempts),
+        )
+
+        try:
+            retrying(_one_attempt)
+        except FetchError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive
+            raise FetchError(f"Playwright render failed: {exc}") from exc
+
+        return result_holder[0]
+
+    def _render_once(self, browser: object, url: str) -> FetchedDoc:
         """Drive the browser, capture the rendered HTML, wrap errors."""
         from playwright.sync_api import Error as PlaywrightError
 
@@ -947,6 +1015,32 @@ class PlaywrightFetcher:
                 page.wait_for_timeout(cfg.playwright_idle_ms)
                 final_url = page.url
                 status_code = response.status if response is not None else 200
+                # Surface HTTP errors as FetchError so the pipeline classifies
+                # them correctly (exit 2) and crawl mode counts them under
+                # ``failed_urls`` instead of misclassifying the error page's
+                # empty content as an ``ExtractionEmptyError``.  Mirrors the
+                # behaviour of ``HttpxFetcher._do_get`` which calls
+                # ``raise_for_status()``.
+                if status_code >= 400:
+                    safe_url = redact_url(url)
+                    _log.warning(
+                        "fetch.playwright.http_error",
+                        url=safe_url,
+                        final_url=redact_url(final_url),
+                        status_code=status_code,
+                        retryable=status_code in _RETRYABLE_STATUSES,
+                    )
+                    err = FetchError(f"HTTP {status_code} for {safe_url}")
+                    # Stamp the status code on the exception so the retry
+                    # predicate in ``_render`` can decide whether to retry
+                    # without parsing the message string.
+                    err.status_code = status_code  # type: ignore[attr-defined]
+                    if status_code in _RETRYABLE_STATUSES:
+                        err.hint = (
+                            f"Server returned {status_code}. The site may be rate-limiting "
+                            "the crawl; reduce concurrency, increase --retries, or wait and retry."
+                        )
+                    raise err
                 html = page.evaluate(_SHADOW_DOM_SERIALIZER) or page.content()
                 headers = dict(response.headers) if response is not None else {}
             finally:

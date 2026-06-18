@@ -34,8 +34,11 @@ _Nothing yet._
   a power loss between the rename and a later kernel sync could leave directory metadata
   inconsistent. No-op on Windows (`O_DIRECTORY` guard).
 - **`crawl.page.error` log carries full root cause** (`crawler.py`) — the structured log event
-  now includes `error_class`, `root_cause` (the `__cause__` chain), `exit_code`, and
-  `exc_info=True`. All five crawler log call sites now pass URLs through `redact_url`.
+  now includes `error_class`, `root_cause` (the `__cause__` chain), `exit_code`, `fetcher`,
+  `pass_name`, and `will_retry`. All five crawler log call sites pass URLs through
+  `redact_url`. The stack-trace dump (`exc_info=True`) is **not** emitted for typed
+  `PageToMdError` outcomes — those are expected terminal events and the structured fields
+  carry every piece of debug context an operator needs.
 - **Pipeline unexpected-error log** (`pipeline.py`) — the `except Exception` catch now emits
   `pipeline.unexpected_error` with `error_class` and `exc_info=True` before re-raising, giving
   operators a breadcrumb instead of a silent exit 1.
@@ -62,6 +65,27 @@ _Nothing yet._
   (only `_ALWAYS_DROP_TAGS` removed, no junk-pattern matching) before giving up. SPA
   shells still correctly produce `ExtractionEmptyError` because the minimal strip removes
   `<script>`/`<noscript>` content.
+- **`PlaywrightFetcher` raises `FetchError` on HTTP 4xx/5xx responses** (`fetcher.py`) —
+  `page.goto()` previously returned successfully on error responses, so a 429 from a
+  rate-limited site got wrapped as a `FetchedDoc` carrying the error page's HTML.
+  Extraction then failed with `ExtractionEmptyError`, misclassifying HTTP failures as
+  content failures (wrong exit code, wrong crawl-summary bucket, no retry behaviour).
+  The Playwright fetcher now mirrors `HttpxFetcher._do_get`'s `raise_for_status()`.
+  Retryable statuses (408/425/429/500/502/503/504) get a hint pointing at rate-limit
+  causes.
+- **`--retries N` now applies to `PlaywrightFetcher`** (`fetcher.py`) — previously a
+  no-op for Playwright crawls. `page.goto()` was invoked exactly once, so a 429 raised
+  `FetchError` immediately and the only retry was the end-of-crawl auto-retry pass (one
+  extra attempt total, regardless of `--retries`). Playwright fetches now drive through
+  the same `tenacity.Retrying` strategy `HttpxFetcher` uses, honouring `Retry-After` on
+  429/503 (capped at 5 minutes per wait) with exponential-backoff fallback (multiplier=2,
+  min=2 s, max=60 s).
+- **`empty_urls` no longer double-counted as `skipped` in the crawl summary**
+  (`crawler.py`) — `ExtractionEmptyError` was incrementing the generic `skipped` counter
+  AND appending to `empty_urls`, so a summary line like `27 written, 85 skipped, 85
+  empty, 0 failed` was reporting the same 85 pages twice. `CrawlResult` gains a
+  first-class `pages_empty: int` field; `total` now sums all four buckets without
+  overlap.
 
 ### Performance
 
@@ -89,6 +113,20 @@ _Nothing yet._
   from `skipped_urls` (file already exists) and `failed_urls` (fetch/conversion error). The
   CLI summary and `crawl.done` structured log event reflect all three counts and print each
   list with an accurate label.
+- **`fetch.retry` log promoted to `info` level and shows attempt budget as `X/Y`**
+  (`fetcher.py`) — previously logged at `debug` and invisible in default runs. With
+  `--retries 7` the log now progresses `attempt=1/8, 2/8, … 8/8` so the proximity to the
+  per-page retry ceiling is obvious at a glance. Combined with the existing `next_wait_s`
+  field this gives operators a complete picture of where each page is in its retry
+  schedule.
+- **New diagnostic logs for empty extractions and Playwright HTTP errors**:
+  - `extract.empty` — emitted just before `ExtractionEmptyError` with `raw_html_len`,
+    `preclean_html_len`, `status_code`, `content_type`, `final_url`. Distinguishes a
+    genuinely empty page from one that preclean over-stripped.
+  - `fetch.playwright.http_error` — emitted before raising `FetchError` on 4xx/5xx
+    Playwright responses, with `status_code`, `retryable` flag, and `final_url`.
+    Surfaces rate-limit signals (429) in the structured log stream without needing
+    browser DevTools.
 
 ## [0.3.0] - 2026-06-18
 

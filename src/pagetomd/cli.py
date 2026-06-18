@@ -441,7 +441,7 @@ def _print_crawl_summary(result: CrawlResult) -> None:
     """Emit the crawl summary to stderr."""
     typer.echo(
         f"✓ crawl complete: {result.pages_written} written, "
-        f"{result.pages_skipped} skipped, {len(result.empty_urls)} empty, "
+        f"{result.pages_skipped} skipped, {result.pages_empty} empty, "
         f"{result.pages_failed} failed "
         f"(total {result.total})",
         err=True,
