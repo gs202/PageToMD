@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **Auto-retry failed crawl pages (`--retry-failed`)** — after a `--crawl` run, pages that failed (fetch or conversion error) are automatically retried once with a fresh fetcher context. Successes are removed from the failed list; persistent failures remain. Disable with `--no-retry-failed`.
 
 ## [0.2.0] - 2026-06-17
 

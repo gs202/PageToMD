@@ -116,3 +116,66 @@ def test_crawl_skips_out_of_scope_links(tmp_path: Path) -> None:
     )
     crawl(cfg, max_depth=1)
     # Reaching this line means the prefix filter held.
+
+
+FLAKY_PAGE_HTML = """
+<html><head><title>Flaky Page</title></head><body>
+  <article>
+    <h1>Flaky Page</h1>
+    <p>This page fails on the first attempt but succeeds on the second.
+    Padding for trafilatura's recall heuristics so we never trip ExtractionEmptyError.
+    Extra padding extra padding extra padding extra padding.</p>
+  </article>
+</body></html>
+"""
+
+# HTML that links to /docs/seed/flaky (which will fail then succeed).
+SEED_WITH_FLAKY_HTML = """
+<html><head><title>Seed</title></head><body>
+  <article>
+    <h1>Seed Page</h1>
+    <p>This is the seed page with enough body text for the extractor to keep it.
+    Padding for trafilatura's recall heuristics so we never trip ExtractionEmptyError.</p>
+    <ul>
+      <li><a href="/docs/seed/flaky">Flaky Page</a></li>
+    </ul>
+  </article>
+</body></html>
+"""
+
+
+@pytest.mark.integration
+@respx.mock
+def test_retry_recovers_failed_page_e2e(tmp_path: Path) -> None:
+    """End-to-end: page fails on initial pass, succeeds on retry via counter."""
+    # The seed page always returns 200.
+    respx.get("https://example.com/docs/seed").mock(
+        return_value=httpx.Response(200, html=SEED_WITH_FLAKY_HTML, headers=_HTML_HEADERS)
+    )
+
+    # The flaky page returns 500 on the first call and 200 on the second.
+    flaky_call_count = 0
+
+    def _flaky_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal flaky_call_count
+        flaky_call_count += 1
+        if flaky_call_count == 1:
+            return httpx.Response(500, text="Internal Server Error")
+        return httpx.Response(200, html=FLAKY_PAGE_HTML, headers=_HTML_HEADERS)
+
+    respx.get("https://example.com/docs/seed/flaky").mock(side_effect=_flaky_handler)
+
+    cfg = Config(
+        url="https://example.com/docs/seed",
+        output=tmp_path,
+        respect_robots=False,
+        no_fetched_at=True,
+        retries=0,  # No per-page retries; only the crawl-level retry pass.
+    )
+    result = crawl(cfg, max_depth=1)
+
+    assert result.pages_written == 2  # seed + flaky (recovered on retry)
+    assert result.pages_failed == 0
+    assert result.failed_urls == []
+    assert (tmp_path / "index.md").exists()
+    assert (tmp_path / "flaky.md").exists()

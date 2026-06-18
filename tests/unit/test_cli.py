@@ -494,13 +494,15 @@ def fake_crawl(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     state: dict[str, Any] = {
         "cfg": None,
         "max_depth": None,
+        "retry_failed": None,
         "result": None,
         "exc": None,
     }
 
-    def _fake(cfg: Config, *, max_depth: int = 1) -> CrawlResult:
+    def _fake(cfg: Config, *, max_depth: int = 1, retry_failed: bool = True) -> CrawlResult:
         state["cfg"] = cfg
         state["max_depth"] = max_depth
+        state["retry_failed"] = retry_failed
         if state["exc"] is not None:
             raise state["exc"]
         return state["result"] or CrawlResult(

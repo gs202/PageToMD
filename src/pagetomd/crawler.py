@@ -235,11 +235,135 @@ def _open_fetcher(config: Config) -> Iterator[Fetcher]:
         yield fetcher
 
 
-def crawl(config: Config, *, max_depth: int = 1) -> CrawlResult:
+def _drain_queue(
+    queue: collections.deque[tuple[str, int]],
+    visited: set[str],
+    fetcher: Fetcher,
+    *,
+    config: Config,
+    seed_url: str,
+    output_dir: Path,
+    max_depth: int,
+    crawl_id: str,
+    output_paths: list[Path],
+    skipped_urls: list[str],
+    failed_urls: list[str],
+    failed_depths: dict[str, int],
+) -> tuple[int, int, int]:
+    """Drain *queue* via BFS, fetching and converting each page.
+
+    Mutates *visited*, *output_paths*, *skipped_urls*, *failed_urls*, and
+    *failed_depths* in place.  Returns ``(written, skipped, failed)`` count
+    deltas so the caller can accumulate them.
+
+    Args:
+        queue: BFS queue of ``(url, depth)`` tuples to process.
+        visited: Shared set of normalised URLs already seen across all passes.
+        fetcher: Fetcher context to use for page retrieval.
+        config: Base configuration (per-page copies are derived via
+            ``model_copy``).
+        seed_url: The normalised seed URL for path derivation and link scoping.
+        output_dir: Root directory for output files.
+        max_depth: Maximum BFS depth ceiling.
+        crawl_id: Opaque identifier for structured log correlation.
+        output_paths: Accumulator for successfully written file paths.
+        skipped_urls: Accumulator for URLs skipped due to existing files.
+        failed_urls: Accumulator for URLs that failed fetch/conversion.
+        failed_depths: Map from failed URL to the depth at which it failed;
+            populated on ``PageToMdError`` so the retry pass can re-enqueue
+            at the original depth.
+
+    Returns:
+        A ``(written_delta, skipped_delta, failed_delta)`` tuple.
+    """
+    written = 0
+    skipped = 0
+    failed = 0
+
+    while queue:
+        url, depth = queue.popleft()
+        # Mirror the URL hierarchy as a directory tree under the output
+        # dir; the writer's ``_ensure_parent_dir`` (called from
+        # ``write_output``) creates every intermediate directory.
+        relative = relative_path_from_url(url, seed_url=seed_url)
+        dest = output_dir / relative
+
+        _log.info(
+            "crawl.page.start",
+            url=url,
+            depth=depth,
+            dest=str(dest),
+            crawl_id=crawl_id,
+        )
+
+        # Config is frozen — derive a per-page copy via ``model_copy``.
+        page_config = config.model_copy(update={"url": url, "output": dest})
+
+        try:
+            result = pipeline.run(page_config, fetcher=fetcher)
+        except WriteError as exc:
+            # Existing file without --overwrite is not a hard failure —
+            # log it and continue with the rest of the crawl.
+            skipped += 1
+            skipped_urls.append(url)
+            _log.warning(
+                "crawl.page.skip",
+                url=url,
+                reason=str(exc),
+                crawl_id=crawl_id,
+            )
+            continue
+        except PageToMdError as exc:
+            failed += 1
+            failed_urls.append(url)
+            failed_depths[url] = depth
+            _log.error(
+                "crawl.page.error",
+                url=url,
+                error=str(exc),
+                crawl_id=crawl_id,
+            )
+            continue
+
+        written += 1
+        if result.output_path:
+            output_paths.append(result.output_path)
+        _log.info("crawl.page.ok", url=url, depth=depth, crawl_id=crawl_id)
+
+        if depth < max_depth:
+            # ``PipelineResult.fetched_html`` carries the HTML from the
+            # fetch stage we just paid for, so link extraction does NOT
+            # need to refetch the page. Fall back to an empty string if
+            # for any reason the pipeline omitted it.
+            fetched_html = result.fetched_html or ""
+            for link in extract_links(
+                fetched_html,
+                base_url=result.final_url,
+                seed_url=seed_url,
+            ):
+                norm = _normalize_url(link)
+                if norm not in visited:
+                    visited.add(norm)
+                    queue.append((norm, depth + 1))
+                    _log.debug(
+                        "crawl.link.queued",
+                        url=norm,
+                        depth=depth + 1,
+                        crawl_id=crawl_id,
+                    )
+
+    return written, skipped, failed
+
+
+def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> CrawlResult:
     """Crawl all pages reachable from ``config.url`` up to *max_depth* hops.
 
-    A single fetcher context is opened for the entire crawl so browser
-    backends (Playwright) do not relaunch Chromium per page.
+    After the initial BFS pass, any pages that failed (fetch or conversion
+    error) are automatically retried once in a second pass with a **fresh**
+    fetcher context.  URLs that succeed on retry are removed from the failed
+    list; persistent failures and any new failures discovered during the
+    retry pass remain.  Set *retry_failed* to ``False`` to disable the
+    automatic retry pass.
 
     Args:
         config: Base configuration. ``config.url`` is the seed URL.
@@ -247,6 +371,8 @@ def crawl(config: Config, *, max_depth: int = 1) -> CrawlResult:
         max_depth: Maximum BFS depth from the seed. ``0`` fetches only the
             seed page. ``1`` (default) also fetches pages linked from the
             seed.
+        retry_failed: When ``True`` (the default), pages that failed during
+            the initial pass are retried once with a fresh fetcher context.
 
     Returns:
         A :class:`CrawlResult` summarising pages written, skipped, and failed.
@@ -260,87 +386,91 @@ def crawl(config: Config, *, max_depth: int = 1) -> CrawlResult:
     queue: collections.deque[tuple[str, int]] = collections.deque([(seed_url, 0)])
     visited: set[str] = {seed_url}
 
-    pages_written = 0
-    pages_skipped = 0
-    pages_failed = 0
     output_paths: list[Path] = []
-    skipped_urls = []
-    failed_urls = []
+    skipped_urls: list[str] = []
+    failed_urls: list[str] = []
+    failed_depths: dict[str, int] = {}
 
     crawl_id = secrets.token_hex(4)
     _log.info("crawl.start", seed=seed_url, max_depth=max_depth, crawl_id=crawl_id)
 
+    # --- Initial pass ---
     with _open_fetcher(config) as fetcher:
-        while queue:
-            url, depth = queue.popleft()
-            # Mirror the URL hierarchy as a directory tree under the output
-            # dir; the writer's ``_ensure_parent_dir`` (called from
-            # ``write_output``) creates every intermediate directory.
-            relative = relative_path_from_url(url, seed_url=seed_url)
-            dest = output_dir / relative
+        written, skipped, failed = _drain_queue(
+            queue,
+            visited,
+            fetcher,
+            config=config,
+            seed_url=seed_url,
+            output_dir=output_dir,
+            max_depth=max_depth,
+            crawl_id=crawl_id,
+            output_paths=output_paths,
+            skipped_urls=skipped_urls,
+            failed_urls=failed_urls,
+            failed_depths=failed_depths,
+        )
 
-            _log.info(
-                "crawl.page.start",
-                url=url,
-                depth=depth,
-                dest=str(dest),
+    pages_written = written
+    pages_skipped = skipped
+    pages_failed = failed
+
+    # --- Retry pass ---
+    # Automatically retry initially-failed URLs once with a fresh fetcher
+    # context.  Successes are removed from the failed list; persistent
+    # failures and any *new* failures discovered during the retry stay.
+    if retry_failed and failed_urls:
+        initially_failed = list(failed_urls)
+        failed_depths_snapshot = dict(failed_depths)
+
+        # Clear failure state so the retry pass rebuilds it from scratch.
+        failed_urls.clear()
+        failed_depths.clear()
+
+        # Re-enqueue each failed URL at its original depth.
+        retry_queue: collections.deque[tuple[str, int]] = collections.deque(
+            (u, failed_depths_snapshot[u]) for u in initially_failed
+        )
+        # The initially-failed URLs are already in ``visited``.  We must
+        # allow them to be processed again, so temporarily remove them.
+        for u in initially_failed:
+            visited.discard(u)
+
+        _log.info(
+            "crawl.retry.start",
+            crawl_id=crawl_id,
+            count=len(initially_failed),
+        )
+
+        with _open_fetcher(config) as fetcher:
+            retry_written, retry_skipped, retry_failed_count = _drain_queue(
+                retry_queue,
+                visited,
+                fetcher,
+                config=config,
+                seed_url=seed_url,
+                output_dir=output_dir,
+                max_depth=max_depth,
                 crawl_id=crawl_id,
+                output_paths=output_paths,
+                skipped_urls=skipped_urls,
+                failed_urls=failed_urls,
+                failed_depths=failed_depths,
             )
 
-            # Config is frozen — derive a per-page copy via ``model_copy``.
-            page_config = config.model_copy(update={"url": url, "output": dest})
+        pages_written += retry_written
+        pages_skipped += retry_skipped
+        # Replace the initial failure count with the retry-pass outcome.
+        # ``failed_urls`` was cleared before the retry pass, so it now
+        # contains only URLs that still failed plus any new failures.
+        pages_failed = len(failed_urls)
 
-            try:
-                result = pipeline.run(page_config, fetcher=fetcher)
-            except WriteError as exc:
-                # Existing file without --overwrite is not a hard failure —
-                # log it and continue with the rest of the crawl.
-                pages_skipped += 1
-                skipped_urls.append(url)
-                _log.warning(
-                    "crawl.page.skip",
-                    url=url,
-                    reason=str(exc),
-                    crawl_id=crawl_id,
-                )
-                continue
-            except PageToMdError as exc:
-                pages_failed += 1
-                failed_urls.append(url)
-                _log.error(
-                    "crawl.page.error",
-                    url=url,
-                    error=str(exc),
-                    crawl_id=crawl_id,
-                )
-                continue
-
-            pages_written += 1
-            if result.output_path:
-                output_paths.append(result.output_path)
-            _log.info("crawl.page.ok", url=url, depth=depth, crawl_id=crawl_id)
-
-            if depth < max_depth:
-                # ``PipelineResult.fetched_html`` carries the HTML from the
-                # fetch stage we just paid for, so link extraction does NOT
-                # need to refetch the page. Fall back to an empty string if
-                # for any reason the pipeline omitted it.
-                fetched_html = result.fetched_html or ""
-                for link in extract_links(
-                    fetched_html,
-                    base_url=result.final_url,
-                    seed_url=seed_url,
-                ):
-                    norm = _normalize_url(link)
-                    if norm not in visited:
-                        visited.add(norm)
-                        queue.append((norm, depth + 1))
-                        _log.debug(
-                            "crawl.link.queued",
-                            url=norm,
-                            depth=depth + 1,
-                            crawl_id=crawl_id,
-                        )
+        _log.info(
+            "crawl.retry.done",
+            crawl_id=crawl_id,
+            recovered=len(initially_failed) - retry_failed_count,
+            still_failed=retry_failed_count,
+        )
 
     _log.info(
         "crawl.done",

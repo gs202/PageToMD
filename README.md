@@ -215,6 +215,7 @@ A compact overview — see `pagetomd --help` for the full list.
 | `--playwright-idle-ms` | `500` | Extra wait (ms) after networkidle for late-firing scripts (Playwright fetcher only). |
 | `--crawl` | `false` | Crawl all linked sub-pages under the seed URL's path prefix and write one `.md` file per page. Requires `-o` to be a directory. |
 | `--crawl-depth` | `1` | Maximum BFS depth from the seed URL when `--crawl` is active. `0` = seed only. |
+| `--retry-failed` / `--no-retry-failed` | `true` | After `--crawl` finishes, retry pages that failed in the initial pass once. |
 | `--version` | — | Print the installed version and exit. |
 
 ## Environment variables

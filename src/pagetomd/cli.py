@@ -271,6 +271,16 @@ def main(
             min=0,
         ),
     ] = 1,
+    retry_failed: Annotated[
+        bool,
+        typer.Option(
+            "--retry-failed/--no-retry-failed",
+            help=(
+                "After --crawl finishes, automatically retry pages that failed "
+                "in the initial pass (one extra attempt). Default: on."
+            ),
+        ),
+    ] = True,
     version: Annotated[
         bool,
         typer.Option(
@@ -321,7 +331,7 @@ def main(
         _emit_env_override_log(cfg, cli_overrides)
         if crawl_site:
             _validate_crawl_output(output)
-            crawl_result = crawl(cfg, max_depth=crawl_depth)
+            crawl_result = crawl(cfg, max_depth=crawl_depth, retry_failed=retry_failed)
             _print_crawl_summary(crawl_result)
             return
         result = run(cfg)
