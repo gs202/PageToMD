@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup
 from slugify import slugify
 
 from pagetomd import pipeline
-from pagetomd.exceptions import PageToMdError, WriteError
+from pagetomd.exceptions import ExtractionEmptyError, PageToMdError, WriteError
 from pagetomd.logging import get_logger
 from pagetomd.pipeline import _select_fetcher
 from pagetomd.ssrf import redact_url
@@ -346,6 +346,20 @@ def _drain_queue(
                 crawl_id=crawl_id,
             )
             continue
+        except ExtractionEmptyError as exc:
+            # No extractable content — expected for login walls, redirect
+            # pages, or thin navigational stubs.  Treat as a skip (warn,
+            # don't count as failure, don't emit a traceback).
+            skipped += 1
+            skipped_urls.append(url)
+            _log.warning(
+                "crawl.page.empty",
+                url=redact_url(url),
+                depth=depth,
+                crawl_id=crawl_id,
+                error=exc.message,
+            )
+            continue
         except PageToMdError as exc:
             failed += 1
             failed_urls.append(url)
@@ -359,7 +373,7 @@ def _drain_queue(
                 error=exc.message,
                 root_cause=repr(exc.__cause__) if exc.__cause__ else None,
                 exit_code=exc.exit_code,
-                exc_info=True,
+                exc_info=type(exc) not in (ExtractionEmptyError,),
             )
             continue
 
