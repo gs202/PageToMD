@@ -947,6 +947,21 @@ class PlaywrightFetcher:
                 page.wait_for_timeout(cfg.playwright_idle_ms)
                 final_url = page.url
                 status_code = response.status if response is not None else 200
+                # Surface HTTP errors as FetchError so the pipeline classifies
+                # them correctly (exit 2) and crawl mode counts them under
+                # ``failed_urls`` instead of misclassifying the error page's
+                # empty content as an ``ExtractionEmptyError``.  Mirrors the
+                # behaviour of ``HttpxFetcher._do_get`` which calls
+                # ``raise_for_status()``.
+                if status_code >= 400:
+                    safe_url = redact_url(url)
+                    err = FetchError(f"HTTP {status_code} for {safe_url}")
+                    if status_code in _RETRYABLE_STATUSES:
+                        err.hint = (
+                            f"Server returned {status_code}. The site may be rate-limiting "
+                            "the crawl; reduce concurrency, increase --retries, or wait and retry."
+                        )
+                    raise err
                 html = page.evaluate(_SHADOW_DOM_SERIALIZER) or page.content()
                 headers = dict(response.headers) if response is not None else {}
             finally:
