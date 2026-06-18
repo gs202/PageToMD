@@ -89,6 +89,78 @@ done < urls.txt
 Each successful conversion exits `0`; any non-zero exit leaves the loop
 running but is visible in stderr (see [Exit codes](#exit-codes) below).
 
+### Crawl an entire documentation site
+
+Use `--crawl` to discover every linked sub-page under a seed URL and write
+one `.md` file per page into an output directory:
+
+```bash
+pagetomd "https://docs.example.com/guide/" \
+  --crawl --crawl-depth 2 \
+  --fetcher auto --no-respect-robots \
+  -o ./docs-output/
+```
+
+**Scope:** The seed is treated as the root of its own subtree. Only links
+whose URL lives *under* the seed are followed; siblings, parents, and
+external sites are skipped. For a seed of
+`https://docs.example.com/guide/intro` the in-scope prefix is
+`https://docs.example.com/guide/intro/` — pass a trailing slash on the
+seed (or use a "directory" URL like `/guide/`) to scope the crawl one
+level higher.
+
+**Output structure:** The on-disk layout mirrors the URL hierarchy under
+the seed, so two pages with the same final URL segment under different
+parents do not collide:
+
+| URL                                                  | Output file (relative to `-o`)     |
+|------------------------------------------------------|------------------------------------|
+| The seed itself                                      | `index.md`                         |
+| `…/guide/intro`                                      | `intro.md`                         |
+| `…/guide/intro/`                                     | `intro/index.md`                   |
+| `…/guide/concepts/alerts`                            | `concepts/alerts.md`               |
+| `…/guide/concepts/alerts/`                           | `concepts/alerts/index.md`         |
+
+Each path segment is slugified independently, and Windows-reserved device
+names (`CON`, `PRN`, …) are escaped per segment.
+
+**Options:**
+
+- `--crawl-depth N` — BFS hop limit from the seed (default: `1`).
+  `--crawl-depth 10` against a site that naturally ends at depth 3 simply
+  stops when the queue empties; nothing is wasted.
+- `--overwrite` — replace existing `.md` files (default: skip). Skipped and failed URLs are printed at the end of the crawl so you can retry them individually.
+- All other flags (`--fetcher`, `--no-verify-ssl`, `--user-agent`,
+  `--retries`, …) apply to every page in the crawl. `--retries` honours
+  `Retry-After` headers on 429/503 responses (capped at 5 minutes per
+  attempt).
+
+A single fetcher context is reused across the whole crawl, so browser
+backends do not relaunch Chromium per page.
+
+## Choosing a mode
+
+`pagetomd` has four ways to turn URLs into Markdown. Pick the one that matches your situation:
+
+| I want to… | Use | Why |
+|---|---|---|
+| Convert a single static page (blog, docs, article) | `pagetomd URL` | Default `httpx` fetcher — fast, no extra deps. |
+| Convert a page that needs JavaScript to render (React, Vue, Angular, Next.js) | `pagetomd URL --fetcher playwright` | Launches headless Chromium so the SPA actually renders. |
+| Convert a page and I'm not sure if it needs JS | `pagetomd URL --fetcher auto` | Tries `httpx` first; falls back to Playwright if the page looks like an empty SPA shell or extraction comes back empty. |
+| Crawl an entire site section into a folder of `.md` files | `pagetomd URL --crawl -o dir/` | BFS-walks every same-subtree link and writes one file per page. Combine with `--fetcher auto` if some pages are JS-rendered. |
+
+### Fetcher details
+
+**`httpx`** (default) — A plain HTTP GET. Sub-second for most pages, handles retries with exponential backoff, honours `Retry-After` on 429/503, enforces `robots.txt`, and follows `<meta http-equiv="refresh">` redirects. No JavaScript execution — if the server sends an empty `<div id="root"></div>` shell, that's all you get.
+
+**`playwright`** — Renders the page in headless Chromium, waits for network idle, then serialises the live DOM (including shadow roots). Use this when you _know_ the page is a SPA. Requires the optional `playwright` extra (`pip install 'pagetomd[playwright]'`) and a one-time `playwright install chromium`. Slower and heavier than `httpx`, but the only way to get content that lives behind a JS framework.
+
+**`auto`** — Fetches with `httpx` first, then inspects the result: if the `<body>` text is under 200 characters _and_ the HTML contains SPA markers (`data-reactroot`, `<div id="__next">`, a "you need to enable javascript" noscript tag, etc.), it re-fetches with Playwright. A second safety net fires if `httpx` returned HTML that _looked_ non-empty but the extractor still couldn't pull any content — Playwright gets a shot then too. Best choice when you're pointed at an unfamiliar URL.
+
+### Single page vs. crawl
+
+Use the **default single-page mode** when you have a specific URL (or a short list piped through a `while read` loop). Use **`--crawl`** when you want every page under a URL prefix — it discovers links automatically, deduplicates, mirrors the URL hierarchy on disk, and reuses a single fetcher context so Playwright doesn't relaunch Chromium per page. See the [crawl cookbook recipe](#crawl-an-entire-documentation-site) for the full flag set.
+
 ## Output shape
 
 Running `pagetomd http://127.0.0.1:8765/blog.html --no-fetched-at -o -` against the `blog.html` fixture prints (first ~15 lines shown):
@@ -104,7 +176,7 @@ description: A retrospective on migrating our monorepo build pipeline from Pytho
 site_name: Example Engineering Blog
 language: en
 tool: pagetomd
-tool_version: 0.1.0
+tool_version: 0.2.0
 ---
 
 # Why We Rewrote Our Build System in Rust
@@ -125,7 +197,7 @@ A compact overview — see `pagetomd --help` for the full list.
 | `--follow-symlinks / --no-follow-symlinks` | `false` | Allow writes to a symlinked destination. Off by default so `--overwrite` cannot be tricked into clobbering a file outside the intended directory via a symlink. |
 | `--fetcher` | `httpx` | `httpx`, `playwright`, or `auto`. |
 | `--timeout` | `30.0` | Per-request HTTP timeout (seconds). |
-| `--retries` | `3` | Retry attempts on transient failures. |
+| `--retries` | `4` | Per-page retry attempts on transient failures (default 4 = up to 5 total attempts). Honours the server's `Retry-After` header on 429/503 responses, capped at 5 minutes; falls back to exponential backoff otherwise. |
 | `--user-agent` | `pagetomd/<ver>` | Override the outbound `User-Agent`. |
 | `--no-verify-ssl` | `false` | Disable TLS certificate verification (for corporate proxies that re-sign HTTPS). |
 | `--respect-robots / --no-respect-robots` | `true` | Honour `robots.txt` (relaxed for loopback/RFC 1918). |
@@ -141,6 +213,9 @@ A compact overview — see `pagetomd --help` for the full list.
 | `--log-json` | `false` | Emit logs as JSON lines on stderr. |
 | `--debug` | `false` | Shortcut for `--log-level=debug` + tracebacks on error. |
 | `--playwright-idle-ms` | `500` | Extra wait (ms) after networkidle for late-firing scripts (Playwright fetcher only). |
+| `--crawl` | `false` | Crawl all linked sub-pages under the seed URL's path prefix and write one `.md` file per page. Requires `-o` to be a directory. |
+| `--crawl-depth` | `1` | Maximum BFS depth from the seed URL when `--crawl` is active. `0` = seed only. |
+| `--retry-failed` / `--no-retry-failed` | `true` | After `--crawl` finishes, retry pages that failed in the initial pass once. |
 | `--version` | — | Print the installed version and exit. |
 
 ## Environment variables

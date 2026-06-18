@@ -1,0 +1,39 @@
+# serializer version: 1
+# name: test_crawl_output_snapshot[index.md]
+  '''
+  ---
+  url: https://example.com/docs/home
+  final_url: https://example.com/docs/home
+  title: Docs Home
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Docs Home
+  
+  Welcome to the docs. This sentence pads the body so the extractor's recall heuristics keep it; without enough material trafilatura gives up.
+  
+  [Intro](https://example.com/docs/home/intro)
+  
+  Welcome to the docs. This sentence pads the body so the extractor's recall heuristics keep it; without enough material trafilatura gives up.
+  
+  '''
+# ---
+# name: test_crawl_output_snapshot[intro.md]
+  '''
+  ---
+  url: https://example.com/docs/home/intro
+  final_url: https://example.com/docs/home/intro
+  title: Introduction
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Introduction
+  
+  Welcome to the docs. This is the introductory page with sufficient body material to make trafilatura happy across multiple sentences and paragraphs.
+  
+  Welcome to the docs. This is the introductory page with sufficient body material to make trafilatura happy across multiple sentences and paragraphs.
+  
+  '''
+# ---

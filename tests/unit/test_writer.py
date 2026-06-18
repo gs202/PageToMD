@@ -252,7 +252,6 @@ def test_slugify_unicode_garbage_falls_back_to_page() -> None:
             content_type=None,
             encoding=None,
             headers={},
-            elapsed_ms=0,
         ),
         _make_extracted(title="🚀🚀🚀"),
     )
@@ -331,10 +330,9 @@ def test_write_exists_no_overwrite_raises(tmp_path: Path) -> None:
     target = tmp_path / "out.md"
     target.write_text("original content\n", encoding="utf-8")
 
-    with pytest.raises(WriteError) as exc_info:
+    with pytest.raises(WriteError):
         write_output("body\n", _frontmatter(), output=target, overwrite=False)
 
-    assert exc_info.value.context["path"] == str(target)
     # File is untouched.
     assert target.read_text(encoding="utf-8") == "original content\n"
 
@@ -401,7 +399,7 @@ def test_permission_error_wrapped(
     with pytest.raises(WriteError) as exc_info:
         write_output("body\n", _frontmatter(), output=target, overwrite=False)
 
-    assert "permission denied" in str(exc_info.value.context.get("original", ""))
+    assert "permission denied" in exc_info.value.message.lower()
 
 
 def test_no_utf8_bom_written(tmp_path: Path) -> None:
@@ -471,14 +469,13 @@ def test_write_ok_event_fires(tmp_path: Path) -> None:
     ok_events = [ev for ev in events if ev.get("event") == "write.ok"]
     assert ok_events, "expected a write.ok event"
     assert ok_events[0].get("path") == str(target)
-    assert "bytes_written" in ok_events[0]
 
 
 def test_write_output_none_raises_write_error() -> None:
     """Calling with ``output=None`` (CLI bug) raises a typed ``WriteError``."""
     with pytest.raises(WriteError) as exc_info:
         write_output("body\n", _frontmatter(), output=None, overwrite=False)
-    assert exc_info.value.context["path"] is None
+    assert "not provided" in exc_info.value.message.lower()
 
 
 def test_ensure_parent_dir_failure_wrapped(
@@ -495,8 +492,7 @@ def test_ensure_parent_dir_failure_wrapped(
 
     with pytest.raises(WriteError) as exc_info:
         write_output("body\n", _frontmatter(), output=target, overwrite=False)
-    assert exc_info.value.context["path"] == str(target)
-    assert "mkdir denied" in str(exc_info.value.context.get("original", ""))
+    assert "mkdir denied" in exc_info.value.message.lower()
 
 
 _skip_if_no_symlinks = pytest.mark.skipif(
@@ -532,7 +528,6 @@ def test_symlink_target_refused_follow_symlinks_false(
             follow_symlinks=False,
         )
 
-    assert exc_info.value.context["path"] == str(link)
     if expected_msg_fragment:
         assert expected_msg_fragment in exc_info.value.message.lower()
     assert real.read_text(encoding="utf-8") == "ORIGINAL CONTENT\n"

@@ -42,7 +42,7 @@ class Config(BaseSettings):
     follow_symlinks: bool = False
     fetcher: Literal["httpx", "playwright", "auto"] = "httpx"
     timeout: float = Field(default=30.0, gt=0)
-    retries: int = Field(default=3, ge=0)
+    retries: int = Field(default=4, ge=0)
     user_agent: str = _default_user_agent()
     verify_ssl: bool = True
     respect_robots: bool = True
@@ -90,7 +90,4 @@ class Config(BaseSettings):
             kwargs: dict[str, Any] = dict(cli_overrides)
             return cls(**kwargs)
         except ValidationError as exc:
-            raise ConfigError(
-                "Invalid configuration",
-                errors=exc.errors(),
-            ) from exc
+            raise ConfigError("Invalid configuration") from exc

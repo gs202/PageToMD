@@ -13,9 +13,8 @@ from tests.conftest import make_config
 
 def test_empty_input_raises_conversion_error() -> None:
     """Empty or whitespace-only HTML is a typed conversion failure."""
-    with pytest.raises(ConversionError) as excinfo:
+    with pytest.raises(ConversionError):
         convert("   \n  ", make_config())
-    assert excinfo.value.context["html_length"] == 0
 
 
 def test_basic_paragraph_round_trip() -> None:
@@ -250,7 +249,7 @@ def test_markdownify_failure_wrapped_as_conversion_error(
         convert("<p>hi</p>", make_config())
 
     assert "markdownify" in str(excinfo.value)
-    assert excinfo.value.context["original"] == "markdownify exploded"
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
 
 
 def test_empty_pre_returns_empty_string() -> None:

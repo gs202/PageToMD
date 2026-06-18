@@ -10,10 +10,11 @@ from __future__ import annotations
 import os
 import re
 import ssl
-import time
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Final, Protocol
 from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
@@ -25,7 +26,9 @@ from tenacity import (
     retry_if_exception,
     stop_after_attempt,
     wait_exponential,
+    wait_random,
 )
+from tenacity.wait import wait_base
 
 from pagetomd.exceptions import DependencyMissingError, FetchError, RobotsDisallowedError
 from pagetomd.logging import get_logger
@@ -45,6 +48,19 @@ __all__ = [
 # HTTP status codes that justify a retry: transient server / rate-limit signals
 # only. 4xx other than these are treated as terminal client errors.
 _RETRYABLE_STATUSES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+# Status codes whose ``Retry-After`` header we honour. Per RFC 9110 §10.2.3
+# the header is meaningful on 503 and 429 (and 3xx redirects, which httpx
+# already follows transparently). For everything else we fall back to
+# exponential backoff regardless of any Retry-After value the server sent.
+_RETRY_AFTER_STATUSES: Final[frozenset[int]] = frozenset({429, 503})
+
+# Hard cap on any ``Retry-After`` delay we honour, in seconds. Servers
+# occasionally send absurdly long values (hours, days); honouring those
+# would hang a crawl indefinitely on a single page. After the cap, we still
+# wait the capped duration — the next attempt will fail again and increment
+# the retry counter towards the per-page budget.
+_RETRY_AFTER_CAP_SECONDS: Final[float] = 300.0
 
 _DEFAULT_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 _DEFAULT_ACCEPT_LANGUAGE = "en;q=0.9,*;q=0.5"
@@ -115,8 +131,6 @@ class FetchedDoc:
         encoding: Character encoding actually used to decode ``html``, or
             ``None`` if httpx could not determine one.
         headers: Read-only view over the response headers.
-        elapsed_ms: Wall-clock time spent on the successful attempt, in
-            milliseconds. Never negative.
     """
 
     url: str
@@ -126,7 +140,6 @@ class FetchedDoc:
     content_type: str | None
     encoding: str | None
     headers: Mapping[str, str]
-    elapsed_ms: int
 
 
 class Fetcher(Protocol):
@@ -331,21 +344,17 @@ class HttpxFetcher:
                 netloc.
         """
         if not url or not isinstance(url, str):
-            raise FetchError("URL is empty", url=redact_url(url) if isinstance(url, str) else url)
+            raise FetchError("URL is empty")
         try:
             parts = urlsplit(url)
         except ValueError as exc:
-            raise FetchError(f"Malformed URL: {exc}", url=redact_url(url)) from exc
+            raise FetchError(f"Malformed URL: {exc}") from exc
 
         scheme = parts.scheme.lower()
         if scheme not in {"http", "https"}:
-            raise FetchError(
-                f"Unsupported URL scheme: {parts.scheme!r}",
-                url=redact_url(url),
-                scheme=parts.scheme,
-            )
+            raise FetchError(f"Unsupported URL scheme: {parts.scheme!r}")
         if not parts.netloc:
-            raise FetchError("URL has no host component", url=redact_url(url))
+            raise FetchError("URL has no host component")
 
         # urlsplit returns ``hostname`` lowercased and without auth/port,
         # exactly what we want for robots cache keying.
@@ -371,8 +380,6 @@ class HttpxFetcher:
         if not allowed:
             raise RobotsDisallowedError(
                 f"robots.txt disallows {redact_url(parsed.raw)}",
-                url=redact_url(parsed.raw),
-                user_agent=ua,
             )
 
     def _get_or_fetch_robots(
@@ -441,7 +448,6 @@ class HttpxFetcher:
         Wraps any final failure in a rich :class:`FetchError`.
         """
         attempts = self._config.retries + 1
-        start = time.perf_counter()
         attempt_holder: list[int] = [0]
 
         def _one_attempt() -> httpx.Response:
@@ -453,7 +459,10 @@ class HttpxFetcher:
 
         retrying = Retrying(
             stop=stop_after_attempt(attempts),
-            wait=wait_exponential(multiplier=1, min=1, max=8),
+            wait=_WaitRetryAfterOrExponential(
+                url,
+                wait_exponential(multiplier=2, min=2, max=60),
+            ),
             retry=retry_if_exception(_is_retryable_exception),
             reraise=True,
             before_sleep=_make_retry_logger(url),
@@ -462,24 +471,14 @@ class HttpxFetcher:
         try:
             response: httpx.Response = retrying(_one_attempt)
         except httpx.HTTPStatusError as exc:
-            elapsed_ms = max(0, int((time.perf_counter() - start) * 1000))
             safe_url = redact_url(url)
             raise FetchError(
                 f"HTTP {exc.response.status_code} for {safe_url}",
-                url=safe_url,
-                status_code=exc.response.status_code,
-                attempt=attempt_holder[0],
-                elapsed_ms=elapsed_ms,
             ) from exc
         except httpx.HTTPError as exc:
-            elapsed_ms = max(0, int((time.perf_counter() - start) * 1000))
             safe_url = redact_url(url)
             err = FetchError(
                 f"Transport error fetching {safe_url}: {exc}",
-                url=safe_url,
-                status_code=None,
-                attempt=attempt_holder[0],
-                elapsed_ms=elapsed_ms,
             )
             if _is_ssl_cert_error(exc):
                 err.hint = (
@@ -488,7 +487,6 @@ class HttpxFetcher:
                 )
             raise err from exc
 
-        elapsed_ms = max(0, int((time.perf_counter() - start) * 1000))
         content_type = response.headers.get("Content-Type")
         self._warn_if_non_html(content_type, url)
         body_text = response.text
@@ -498,7 +496,6 @@ class HttpxFetcher:
             url=redact_url(url),
             status_code=response.status_code,
             final_url=redact_url(str(response.url)),
-            elapsed_ms=elapsed_ms,
         )
         headers_proxy: Mapping[str, str] = types.MappingProxyType(dict(response.headers))
         return FetchedDoc(
@@ -509,7 +506,6 @@ class HttpxFetcher:
             content_type=content_type,
             encoding=response.encoding,
             headers=headers_proxy,
-            elapsed_ms=elapsed_ms,
         )
 
     def _enforce_body_size_limit(self, resp: httpx.Response, url: str) -> None:
@@ -522,26 +518,16 @@ class HttpxFetcher:
             except ValueError:  # pragma: no cover - defensive against bad headers
                 cl = -1
             if cl > cap:
-                raise FetchError(
-                    f"Body exceeds {cap} byte cap",
-                    url=redact_url(url),
-                    content_length=cl,
-                    max_body_bytes=cap,
-                )
+                raise FetchError(f"Body exceeds {cap} byte cap")
         actual = len(resp.content)
         if actual > cap:
-            raise FetchError(
-                f"Body exceeds {cap} byte cap",
-                url=redact_url(url),
-                content_length=actual,
-                max_body_bytes=cap,
-            )
+            raise FetchError(f"Body exceeds {cap} byte cap")
 
     @staticmethod
     def _warn_if_non_html(content_type: str | None, url: str) -> None:
         """Emit a warning when the body is unlikely to be HTML/XML."""
         if not content_type:
-            _log.warning("fetch.no_content_type", url=redact_url(url))
+            _log.debug("fetch.no_content_type", url=redact_url(url))
             return
         ct = content_type.lower()
         if "html" not in ct and "xml" not in ct:
@@ -574,14 +560,113 @@ def _make_retry_logger(url: str) -> Callable[[RetryCallState], None]:
         error: str | None = None
         if outcome is not None and outcome.failed:
             error = repr(outcome.exception())
-        _log.warning(
+        _log.debug(
             "fetch.retry",
             url=redact_url(url),
             attempt=retry_state.attempt_number,
+            next_wait_s=round(retry_state.next_action.sleep, 2)
+            if retry_state.next_action is not None
+            else None,
             error=error,
         )
 
     return _hook
+
+
+def _parse_retry_after(value: str, *, now: datetime | None = None) -> float | None:
+    """Parse an HTTP ``Retry-After`` header value into seconds.
+
+    The header may be either an integer number of seconds (``"30"``) or an
+    HTTP-date (``"Wed, 21 Oct 2015 07:28:00 GMT"``) per RFC 9110 §10.2.3.
+    Returns ``None`` if the value cannot be parsed; the caller is expected
+    to fall back to the exponential-backoff schedule.
+
+    Args:
+        value: Raw header value as returned by the server.
+        now: Reference instant for date-form parsing. Exposed so tests can
+            pin a value; defaults to :func:`datetime.now` in UTC.
+
+    Returns:
+        Non-negative seconds to wait, or ``None`` if unparseable.
+    """
+    text = value.strip()
+    if not text:
+        return None
+    # Try integer-seconds form first (most common in practice).
+    seconds: float | None
+    try:
+        seconds = float(text)
+    except ValueError:
+        seconds = None
+    if seconds is not None:
+        return max(0.0, seconds)
+
+    # Fall back to HTTP-date form.
+    try:
+        target = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    if target is None:
+        return None
+    # ``parsedate_to_datetime`` returns a naive datetime when no timezone
+    # is present; treat naive values as UTC per RFC 9110's IMF-fixdate.
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=UTC)
+    reference = now if now is not None else datetime.now(tz=UTC)
+    delta = (target - reference).total_seconds()
+    return max(0.0, delta)
+
+
+class _WaitRetryAfterOrExponential(wait_base):
+    """Honour ``Retry-After`` on 429/503; otherwise use exponential backoff.
+
+    Per-page retry budgets are still bounded by :class:`stop_after_attempt`
+    in the outer ``Retrying`` configuration. This strategy only governs the
+    *duration* of each sleep, not the *number* of attempts.
+    """
+
+    _jitter: wait_random = wait_random(0, 1)
+
+    def __init__(self, url: str, exponential: wait_exponential) -> None:
+        self._url = url
+        self._exponential = exponential
+
+    def __call__(self, retry_state: RetryCallState) -> float:
+        """Return the seconds to sleep before the next retry attempt.
+
+        Jitter (0-1 s uniform) is added to every computed wait to spread
+        concurrent retries and avoid thundering-herd effects.
+        """
+        exponential_wait = self._exponential(retry_state) + self._jitter(retry_state)
+        outcome = retry_state.outcome
+        if outcome is None or not outcome.failed:
+            return exponential_wait
+        exc = outcome.exception()
+        if not isinstance(exc, httpx.HTTPStatusError):
+            return exponential_wait
+        if exc.response.status_code not in _RETRY_AFTER_STATUSES:
+            return exponential_wait
+        header = exc.response.headers.get("Retry-After")
+        if header is None:
+            return exponential_wait
+        parsed = _parse_retry_after(header)
+        if parsed is None:
+            return exponential_wait
+        capped = min(parsed, _RETRY_AFTER_CAP_SECONDS)
+        # Never sleep less than the exponential schedule would have asked
+        # for: if the server requests 1 s but we are already on attempt 4
+        # of exponential backoff (≈8 s), the server's value is too
+        # optimistic and would likely re-trigger the same 429.
+        chosen = max(capped, exponential_wait)
+        _log.info(
+            "fetch.retry_after",
+            url=redact_url(self._url),
+            header_value=header,
+            parsed_seconds=parsed,
+            chosen_seconds=chosen,
+            capped=parsed > _RETRY_AFTER_CAP_SECONDS,
+        )
+        return chosen
 
 
 def _detect_meta_refresh(html: str, base_url: str) -> str | None:
@@ -657,6 +742,48 @@ _CHROMIUM_LAUNCH_ARGS: Final[tuple[str, ...]] = (
 )
 
 
+# JavaScript that serializes the full DOM including shadow roots into a single
+# HTML string by walking the *live* tree recursively. ``cloneNode`` does not
+# copy shadow roots, so we must traverse the live nodes and inline each
+# shadow root's children directly. Only a safe subset of attributes is kept
+# (href, src, alt, title, class, id) to keep the output compact.
+_SHADOW_DOM_SERIALIZER: Final[str] = """
+() => {
+    const _SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+    const _VOID = new Set(['area','base','br','col','embed','hr','img','input',
+                           'link','meta','param','source','track','wbr']);
+    const _KEEP_ATTRS = new Set(['href','src','alt','title','class','id','name','content']);
+
+    function ser(node) {
+        if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+        const tag = node.tagName;
+        if (_SKIP.has(tag)) return '';
+        const tagL = tag.toLowerCase();
+        let attrs = '';
+        for (const a of node.attributes) {
+            if (_KEEP_ATTRS.has(a.name)) {
+                attrs += ' ' + a.name + '="' + a.value.replace(/"/g, '&quot;') + '"';
+            }
+        }
+        let inner = '';
+        if (node.shadowRoot) {
+            for (const c of node.shadowRoot.childNodes) inner += ser(c);
+        }
+        for (const c of node.childNodes) inner += ser(c);
+        if (_VOID.has(tagL)) return '<' + tagL + attrs + '>';
+        return '<' + tagL + attrs + '>' + inner + '</' + tagL + '>';
+    }
+
+    try {
+        return '<!DOCTYPE html><html>' + ser(document.documentElement) + '</html>';
+    } catch(e) {
+        return null;
+    }
+}
+"""
+
+
 class PlaywrightFetcher:
     """Synchronous Playwright-based fetcher for JavaScript-rendered pages.
 
@@ -671,7 +798,7 @@ class PlaywrightFetcher:
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
-            raise DependencyMissingError(_PLAYWRIGHT_DEP_MESSAGE, extra="playwright") from exc
+            raise DependencyMissingError(_PLAYWRIGHT_DEP_MESSAGE) from exc
         self._sync_playwright = sync_playwright
         self._robots_delegate = HttpxFetcher(config)
         self._playwright_cm: object | None = None
@@ -727,7 +854,6 @@ class PlaywrightFetcher:
         guard_url(url)
         self._check_robots_via_httpx(parsed)
 
-        start = time.perf_counter()
         own_playwright = self._browser is None
 
         if own_playwright:
@@ -739,12 +865,12 @@ class PlaywrightFetcher:
                 )
                 _log.debug("fetch.playwright.browser.launched", mode="transient")
                 try:
-                    return self._render(browser, url, start)
+                    return self._render(browser, url)
                 finally:
                     browser.close()
                     _log.debug("fetch.playwright.browser.closed", mode="transient")
         else:
-            return self._render(self._browser, url, start)
+            return self._render(self._browser, url)
 
     def _check_robots_via_httpx(self, parsed: _ParsedUrl) -> None:
         """Reuse :class:`HttpxFetcher`'s robots logic without launching Chromium."""
@@ -757,7 +883,7 @@ class PlaywrightFetcher:
         finally:
             client.close()
 
-    def _render(self, browser: object, url: str, start: float) -> FetchedDoc:
+    def _render(self, browser: object, url: str) -> FetchedDoc:
         """Drive the browser, capture the rendered HTML, wrap errors."""
         from playwright.sync_api import Error as PlaywrightError
 
@@ -775,33 +901,24 @@ class PlaywrightFetcher:
                 page.wait_for_timeout(cfg.playwright_idle_ms)
                 final_url = page.url
                 status_code = response.status if response is not None else 200
-                html = page.content()
+                html = page.evaluate(_SHADOW_DOM_SERIALIZER) or page.content()
                 headers = dict(response.headers) if response is not None else {}
             finally:
                 page.close()
                 context.close()
         except PlaywrightError as exc:
-            elapsed_ms = max(0, int((time.perf_counter() - start) * 1000))
-            _log.warning(
+            _log.error(
                 "fetch.playwright.error",
                 url=redact_url(url),
                 error=str(exc),
-                elapsed_ms=elapsed_ms,
             )
-            raise FetchError(
-                "Playwright navigation failed",
-                url=redact_url(url),
-                original=str(exc),
-                elapsed_ms=elapsed_ms,
-            ) from exc
+            raise FetchError("Playwright navigation failed") from exc
 
-        elapsed_ms = max(0, int((time.perf_counter() - start) * 1000))
         _log.info(
             "fetch.playwright.ok",
             url=redact_url(url),
             final_url=redact_url(final_url),
             status_code=status_code,
-            elapsed_ms=elapsed_ms,
         )
         headers_proxy: Mapping[str, str] = types.MappingProxyType(dict(headers))
         return FetchedDoc(
@@ -812,5 +929,4 @@ class PlaywrightFetcher:
             content_type="text/html",
             encoding="utf-8",
             headers=headers_proxy,
-            elapsed_ms=elapsed_ms,
         )

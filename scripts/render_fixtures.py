@@ -79,7 +79,6 @@ class _FixtureFetcher:
             content_type="text/html; charset=utf-8",
             encoding="utf-8",
             headers=headers,
-            elapsed_ms=0,
         )
 
 

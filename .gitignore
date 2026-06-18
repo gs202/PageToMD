@@ -25,6 +25,9 @@ htmlcov/
 # OS
 .DS_Store
 
+# JetBrains IDEs
+.idea/
+
 # Hatch-vcs generated version file
 src/pagetomd/_version.py
 
