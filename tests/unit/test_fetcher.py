@@ -372,19 +372,22 @@ def test_is_retryable_returns_true_for_plain_connect_error() -> None:
 
 def test_ssl_cert_error_not_retried(cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
     """SSL certificate errors fail immediately without retrying."""
+    import contextlib
     import ssl as _ssl
 
     call_count = 0
 
-    def _patched_get(self: httpx.Client, *args: object, **kwargs: object) -> httpx.Response:
+    @contextlib.contextmanager  # type: ignore[misc]
+    def _patched_stream(self: httpx.Client, *args: object, **kwargs: object) -> httpx.Response:  # type: ignore[misc]
         nonlocal call_count
         call_count += 1
         ssl_err = _ssl.SSLCertVerificationError(
             "certificate verify failed: self-signed certificate"
         )
         raise httpx.ConnectError("ssl handshake failed") from ssl_err
+        yield  # make it a generator so @contextmanager is satisfied  # noqa: unreachable
 
-    monkeypatch.setattr(httpx.Client, "get", _patched_get)
+    monkeypatch.setattr(httpx.Client, "stream", _patched_stream)
 
     with pytest.raises(FetchError) as excinfo:
         HttpxFetcher(cfg).fetch("https://example.com/secure")
