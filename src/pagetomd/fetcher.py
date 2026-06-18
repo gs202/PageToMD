@@ -529,7 +529,7 @@ class HttpxFetcher:
             ),
             retry=retry_if_exception(_is_retryable_exception),
             reraise=True,
-            before_sleep=_make_retry_logger(url),
+            before_sleep=_make_retry_logger(url, attempts),
         )
 
         try:
@@ -601,21 +601,29 @@ def _default_port(scheme: str) -> int:
     return 443 if scheme == "https" else 80
 
 
-def _make_retry_logger(url: str) -> Callable[[RetryCallState], None]:
-    """Build a tenacity ``before_sleep`` hook that logs each retry attempt."""
+def _make_retry_logger(url: str, total_attempts: int) -> Callable[[RetryCallState], None]:
+    """Build a tenacity ``before_sleep`` hook that logs each retry attempt.
+
+    Logs at ``info`` level so retry progress is visible in default runs
+    (``debug`` was effectively invisible to operators watching a slow
+    crawl).  ``total_attempts`` is rendered as the denominator of an
+    ``attempt/total`` pair so the user can see how close they are to the
+    per-page retry budget at a glance.
+    """
 
     def _hook(retry_state: RetryCallState) -> None:
         outcome = retry_state.outcome
         error: str | None = None
         if outcome is not None and outcome.failed:
             error = repr(outcome.exception())
-        _log.debug(
+        next_wait = (
+            round(retry_state.next_action.sleep, 2) if retry_state.next_action is not None else None
+        )
+        _log.info(
             "fetch.retry",
             url=redact_url(url),
-            attempt=retry_state.attempt_number,
-            next_wait_s=round(retry_state.next_action.sleep, 2)
-            if retry_state.next_action is not None
-            else None,
+            attempt=f"{retry_state.attempt_number}/{total_attempts}",
+            next_wait_s=next_wait,
             error=error,
         )
 
@@ -977,7 +985,7 @@ class PlaywrightFetcher:
             ),
             retry=retry_if_exception(_is_retryable_playwright_exception),
             reraise=True,
-            before_sleep=_make_retry_logger(url),
+            before_sleep=_make_retry_logger(url, attempts),
         )
 
         try:
