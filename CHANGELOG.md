@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **SPA-detection regression** (`pipeline.py`) — the regex-based body-text measurement
+  introduced in 0.4.0 did not strip `<script>`/`<style>` content before counting characters.
+  Inline JSON state blobs and CSS could inflate the count above the 200-char threshold,
+  suppressing the Playwright fallback on pages that genuinely need it. Fixed by applying a
+  `<script>/<style>` content strip before measuring.
+- **Integration tests broken by SSRF bypass change** (`ssrf.py`, `tests/`) — the env-var
+  bypass removed in 0.4.0 was the only mechanism for subprocess-based integration tests to
+  reach the local HTTP test server. Restored as a double-gated escape hatch: the env-var
+  `PAGETOMD_INTERNAL_SKIP_SSRF=1` is now only honoured when `PYTEST_CURRENT_TEST` is also
+  present in the environment, making it physically unreachable in production.
+- **`ExtractionEmptyError` in crawl mode caused noisy error logs and wrong failure counts**
+  (`crawler.py`) — pages that produced no extractable content were logged at `error` level
+  with a full stack trace and counted as failures. They are now logged at `warning` as
+  `crawl.page.empty` with no traceback, and counted as a distinct "empty" category rather
+  than a failure.
+- **Preclean over-firing on portal pages** (`extractor.py`) — when `_preclean`'s
+  junk-pattern remover decomposed an element whose class/id matched a portal UI term (e.g.
+  `feedback`, `component-loader`) that happened to be the main content container, trafilatura
+  received an empty document and raised `ExtractionEmptyError` even though the page had real
+  content. A fallback pass now retries trafilatura with a minimal strip (only
+  `_ALWAYS_DROP_TAGS` removed, no junk-pattern matching) before giving up.
+
+### Changed
+
+- **Crawl summary now distinguishes three skip categories** (`crawler.py`, `cli.py`) —
+  `CrawlResult` gains an `empty_urls` list for pages with no extractable content, separate
+  from `skipped_urls` (file already exists) and `failed_urls` (fetch/conversion error). The
+  CLI summary and `crawl.done` structured log event reflect all three counts and print each
+  list with an accurate label.
 
 ## [0.4.0] - 2026-06-18
 
