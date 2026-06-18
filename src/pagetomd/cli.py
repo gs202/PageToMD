@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import traceback
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Final
 
@@ -49,30 +50,51 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit(0)
 
 
-# Names of options whose presence on the command line should override an env
-# var. Kept as a module-level tuple so the implementation cannot drift from
-# the option declarations below.
-_CLI_OVERRIDE_NAMES: tuple[str, ...] = (
-    "output",
-    "overwrite",
-    "follow_symlinks",
-    "fetcher",
-    "timeout",
-    "retries",
-    "user_agent",
-    "respect_robots",
-    "max_redirects",
-    "include_comments",
-    "include_images",
-    "include_links",
-    "heading_style",
-    "code_fences",
-    "wide_tables",
-    "no_fetched_at",
-    "log_level",
-    "log_json",
-    "playwright_idle_ms",
-)
+def _coerce_output(output: str | None) -> Path | None:
+    """Translate the raw ``--output`` string into a :class:`Path` (or ``None``)."""
+    if output is None:
+        return None
+    return Path(output)
+
+
+# Maps each Config field name to a ``(cli_param_name, transform)`` pair.
+#
+# ``cli_param_name`` is the Python parameter name Typer uses in ``ctx.params``
+# (snake_case, matching the ``main()`` signature).  ``transform`` converts the
+# raw CLI value to the value expected by :class:`~pagetomd.config.Config`.
+#
+# **Adding a new CLI flag only requires two edits:**
+#   1. Add the parameter to ``main()`` with its ``typer.Option(...)`` annotation.
+#   2. Add an entry here.
+#
+# The dict replaces the old ``_CLI_OVERRIDE_NAMES`` tuple (which tracked *what*
+# to check) and the ``values`` dict inside ``_build_config()`` (which tracked
+# *how* to transform each value) — eliminating two of the original four
+# parallel structures.
+_OPTION_TRANSFORMS: dict[str, tuple[str, Callable[[object], object]]] = {
+    # config field      cli param name    transform
+    "output": ("output", lambda v: _coerce_output(v)),  # type: ignore[arg-type]
+    "overwrite": ("overwrite", lambda v: v),
+    "follow_symlinks": ("follow_symlinks", lambda v: v),
+    "fetcher": ("fetcher", lambda v: v),
+    "timeout": ("timeout", lambda v: v),
+    "retries": ("retries", lambda v: v),
+    "user_agent": ("user_agent", lambda v: v),
+    "respect_robots": ("respect_robots", lambda v: v),
+    "max_redirects": ("max_redirects", lambda v: v),
+    "include_comments": ("include_comments", lambda v: v),
+    "include_images": ("include_images", lambda v: v),
+    "include_links": ("include_links", lambda v: v),
+    "heading_style": ("heading_style", lambda v: v),
+    "code_fences": ("code_fences", lambda v: v),
+    "wide_tables": ("wide_tables", lambda v: v),
+    "no_fetched_at": ("no_fetched_at", lambda v: v),
+    "log_level": ("log_level", lambda v: v),
+    "log_json": ("log_json", lambda v: v),
+    "playwright_idle_ms": ("playwright_idle_ms", lambda v: v),
+    # Inverted flag: --no-verify-ssl on the CLI → verify_ssl=False in Config.
+    "verify_ssl": ("no_verify_ssl", lambda v: not v),
+}
 
 
 @app.command(no_args_is_help=True)
@@ -301,31 +323,7 @@ def main(
     del version  # consumed by the eager --version callback; nothing to do here.
 
     try:
-        cfg, cli_overrides = _build_config(
-            ctx,
-            url=url,
-            output=output,
-            overwrite=overwrite,
-            follow_symlinks=follow_symlinks,
-            fetcher=fetcher,
-            timeout=timeout,
-            retries=retries,
-            user_agent=user_agent,
-            no_verify_ssl=no_verify_ssl,
-            respect_robots=respect_robots,
-            max_redirects=max_redirects,
-            include_comments=include_comments,
-            include_images=include_images,
-            include_links=include_links,
-            heading_style=heading_style,
-            code_fences=code_fences,
-            wide_tables=wide_tables,
-            no_fetched_at=no_fetched_at,
-            log_level=log_level,
-            log_json=log_json,
-            playwright_idle_ms=playwright_idle_ms,
-            debug=debug,
-        )
+        cfg, cli_overrides = _build_config(ctx, url, debug)
         configure_logging(level=cfg.log_level, json_mode=cfg.log_json)
         _emit_env_override_log(cfg, cli_overrides)
         if crawl_site:
@@ -346,76 +344,40 @@ def main(
 
 def _build_config(
     ctx: typer.Context,
-    *,
     url: str,
-    output: str | None,
-    overwrite: bool,
-    follow_symlinks: bool,
-    fetcher: str,
-    timeout: float,
-    retries: int,
-    user_agent: str | None,
-    no_verify_ssl: bool,
-    respect_robots: bool,
-    max_redirects: int,
-    include_comments: bool,
-    include_images: bool,
-    include_links: bool,
-    heading_style: str,
-    code_fences: bool,
-    wide_tables: str,
-    no_fetched_at: bool,
-    log_level: str,
-    log_json: bool,
-    playwright_idle_ms: int,
     debug: bool,
 ) -> tuple[Config, dict[str, object]]:
     """Collect CLI flags into a :class:`Config`, honouring env-var precedence.
+
+    Uses ``ctx.params`` (populated by Typer from the ``main()`` signature) and
+    :data:`_OPTION_TRANSFORMS` to determine which options were explicitly
+    supplied on the command line and apply any necessary value transforms.
 
     Only options the user actually passed on the command line are forwarded
     to :meth:`Config.from_overrides`. Anything left at its Typer default is
     omitted so ``pydantic-settings`` can still pull ``PAGETOMD_*`` env vars
     (or fall back to the Pydantic-side default) for that field.
 
+    Args:
+        ctx: The Typer context, used to inspect which params were explicitly
+            set vs. left at their defaults.
+        url: The positional URL argument — always included in the overrides.
+        debug: Shortcut flag that forces ``log_level`` to ``"debug"`` when set.
+
     Returns:
         A ``(Config, cli_overrides)`` tuple. ``cli_overrides`` is the
         mapping of field names actually supplied on the command line
         (including ``"url"``).
     """
-    values: dict[str, object] = {
-        "output": _coerce_output(output),
-        "overwrite": overwrite,
-        "follow_symlinks": follow_symlinks,
-        "fetcher": fetcher,
-        "timeout": timeout,
-        "retries": retries,
-        "user_agent": user_agent,
-        "verify_ssl": not no_verify_ssl,
-        "respect_robots": respect_robots,
-        "max_redirects": max_redirects,
-        "include_comments": include_comments,
-        "include_images": include_images,
-        "include_links": include_links,
-        "heading_style": heading_style,
-        "code_fences": code_fences,
-        "wide_tables": wide_tables,
-        "no_fetched_at": no_fetched_at,
-        "log_level": log_level,
-        "log_json": log_json,
-        "playwright_idle_ms": playwright_idle_ms,
-    }
-
     overrides: dict[str, object] = {"url": url}
-    for name in _CLI_OVERRIDE_NAMES:
-        source = ctx.get_parameter_source(name)
+
+    for config_field, (cli_param, transform) in _OPTION_TRANSFORMS.items():
+        source = ctx.get_parameter_source(cli_param)
         if source is not None and source.name != "DEFAULT":
-            overrides[name] = values[name]
+            overrides[config_field] = transform(ctx.params[cli_param])
 
     if debug:
         overrides["log_level"] = "debug"
-
-    if no_verify_ssl:
-        overrides["verify_ssl"] = False
 
     return Config.from_overrides(overrides), overrides
 
@@ -437,13 +399,6 @@ def _emit_env_override_log(
             "config.env_overrides",
             fields=env_only,
         )
-
-
-def _coerce_output(output: str | None) -> Path | None:
-    """Translate the raw ``--output`` string into a :class:`Path` (or ``None``)."""
-    if output is None:
-        return None
-    return Path(output)
 
 
 def _report_error(exc: PageToMdError, *, debug: bool) -> None:
