@@ -1,7 +1,8 @@
 """Unit tests for :mod:`pagetomd.ssrf`.
 
-Every test clears ``PAGETOMD_INTERNAL_SKIP_SSRF`` so the production guard
-code path is exercised.
+Every test disables the ``_BYPASS`` flag so the production guard code path
+is exercised.  The ``_clear_bypass`` fixture overrides the session-wide
+``_ssrf_bypass`` fixture from ``tests/conftest.py``.
 """
 
 from __future__ import annotations
@@ -12,14 +13,19 @@ from typing import Any
 
 import pytest
 
+import pagetomd.ssrf
 from pagetomd.exceptions import FetchError
 from pagetomd.ssrf import _resolve_addresses, guard_url, redact_url
 
 
 @pytest.fixture(autouse=True)
 def _clear_bypass(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Clear the bypass env var and the ``_resolve_addresses`` LRU cache."""
-    monkeypatch.delenv("PAGETOMD_INTERNAL_SKIP_SSRF", raising=False)
+    """Disable the SSRF bypass and clear the ``_resolve_addresses`` LRU cache.
+
+    Overrides the session-wide ``_ssrf_bypass`` fixture so that every test
+    in this module exercises the live guard by default.
+    """
+    monkeypatch.setattr(pagetomd.ssrf, "_BYPASS", False)
     _resolve_addresses.cache_clear()
     yield
     _resolve_addresses.cache_clear()
@@ -167,16 +173,16 @@ def test_empty_host_does_not_raise() -> None:
     guard_url("not a url")
 
 
-def test_bypass_env_var_disables_guard(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``PAGETOMD_INTERNAL_SKIP_SSRF=1`` disables the guard entirely."""
-    monkeypatch.setenv("PAGETOMD_INTERNAL_SKIP_SSRF", "1")
+def test_bypass_flag_disables_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Setting ``pagetomd.ssrf._BYPASS = True`` disables the guard entirely."""
+    monkeypatch.setattr(pagetomd.ssrf, "_BYPASS", True)
     # Loopback would normally be blocked; bypass should silence it.
     guard_url("http://127.0.0.1/")
 
 
-def test_bypass_env_var_only_literal_one(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Any value other than literal ``"1"`` (e.g. ``"true"``) does NOT bypass."""
-    monkeypatch.setenv("PAGETOMD_INTERNAL_SKIP_SSRF", "true")
+def test_bypass_flag_false_guard_active() -> None:
+    """With ``_BYPASS = False`` (the default) the guard remains active."""
+    # _BYPASS is already False courtesy of the autouse _clear_bypass fixture.
     with pytest.raises(FetchError):
         guard_url("http://127.0.0.1/")
 

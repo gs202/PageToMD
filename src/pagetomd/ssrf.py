@@ -1,14 +1,18 @@
 """SSRF guard — refuse fetches of private and cloud-metadata addresses.
 
-An internal env var ``PAGETOMD_INTERNAL_SKIP_SSRF=1`` exists for the test
-suite only — DO NOT document this in user-facing docs or rely on it in
-production wrappers.
+The test-only escape hatch is the module-level ``_BYPASS`` flag.  Tests that
+need to reach loopback addresses set it via ``monkeypatch.setattr``::
+
+    monkeypatch.setattr(pagetomd.ssrf, "_BYPASS", True)
+
+There is **no** production-reachable way to disable this guard.  Do not add
+one.
 """
 
 from __future__ import annotations
 
 import ipaddress
-import os
+import logging
 import socket
 from functools import lru_cache
 from urllib.parse import urlsplit, urlunsplit
@@ -16,6 +20,12 @@ from urllib.parse import urlsplit, urlunsplit
 from pagetomd.exceptions import FetchError
 
 __all__ = ["guard_url", "redact_url"]
+
+_log = logging.getLogger(__name__)
+
+# Test-only escape hatch.  Set exclusively via monkeypatch.setattr in tests;
+# never set this to True in application or library code.
+_BYPASS: bool = False
 
 
 def redact_url(url: str) -> str:
@@ -47,11 +57,6 @@ _METADATA_HOSTS: frozenset[str] = frozenset(
         "metadata.goog",  # GCP shortname
     }
 )
-
-# Internal-only env var used by the test suite to disable the guard.
-# Setting this in production is a misuse of the tool — there is no
-# supported user-facing way to bypass the SSRF guard.
-_INTERNAL_BYPASS_ENV = "PAGETOMD_INTERNAL_SKIP_SSRF"
 
 
 @lru_cache(maxsize=256)
@@ -97,7 +102,8 @@ def guard_url(url: str) -> str | None:
         The validated IP address (or original host if it's an IP literal),
         or ``None`` if the bypass is active or the URL has no host.
     """
-    if os.environ.get(_INTERNAL_BYPASS_ENV) == "1":
+    if _BYPASS:
+        _log.warning("ssrf.guard_disabled")
         return None
 
     parts = urlsplit(url)

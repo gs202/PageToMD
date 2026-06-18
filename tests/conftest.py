@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-# SSRF guard bypass — tests hit loopback, so disable the private-address
-# check. NEVER set this in production. Must precede pagetomd imports.
 import asyncio
-import os
-
-os.environ.setdefault("PAGETOMD_INTERNAL_SKIP_SSRF", "1")
-
 import functools
+import os
 import pathlib
 import threading
 from collections.abc import Callable, Iterator, Mapping
@@ -18,6 +13,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+import pagetomd.ssrf
 from pagetomd.config import Config
 from pagetomd.fetcher import FetchedDoc, Fetcher
 
@@ -25,6 +21,22 @@ from pagetomd.fetcher import FetchedDoc, Fetcher
 # suite. Resolved once at import time so individual tests do not need to
 # duplicate the path-construction logic.
 FIXTURES_DIR: pathlib.Path = pathlib.Path(__file__).parent / "fixtures" / "pages"
+
+
+@pytest.fixture(autouse=True)
+def _ssrf_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enable the SSRF guard bypass for tests that reach loopback addresses.
+
+    Uses ``monkeypatch.setattr`` so the flag is an in-process attribute
+    that only exists during test execution and is automatically undone after
+    each test.  This replaces the former ``os.environ`` approach which was
+    production-reachable.
+
+    Tests in ``tests/unit/test_ssrf.py`` that need to exercise the live guard
+    override this with their own ``_clear_bypass`` fixture, which runs *after*
+    this one and resets ``_BYPASS`` back to ``False``.
+    """
+    monkeypatch.setattr(pagetomd.ssrf, "_BYPASS", True)
 
 
 @pytest.fixture
