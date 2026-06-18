@@ -59,7 +59,11 @@ class CrawlResult:
     output_dir: Path | None
     output_paths: list[Path] = field(default_factory=list)
     skipped_urls: list[str] = field(default_factory=list)
+    """URLs skipped because the output file already exists (re-run with --overwrite)."""
+    empty_urls: list[str] = field(default_factory=list)
+    """URLs skipped because no extractable content was found (thin/nav/auth-wall pages)."""
     failed_urls: list[str] = field(default_factory=list)
+    """URLs that failed with a fetch or conversion error."""
 
     @property
     def total(self) -> int:
@@ -250,14 +254,16 @@ def _drain_queue(
     crawl_id: str,
     output_paths: list[Path],
     skipped_urls: list[str],
+    empty_urls: list[str],
     failed_urls: list[str],
     failed_depths: dict[str, int],
 ) -> tuple[int, int, int]:
     """Drain *queue* via BFS, fetching and converting each page.
 
-    Mutates *visited*, *output_paths*, *skipped_urls*, *failed_urls*, and
-    *failed_depths* in place.  Returns ``(written, skipped, failed)`` count
-    deltas so the caller can accumulate them.
+    Mutates *visited*, *output_paths*, *skipped_urls*, *empty_urls*,
+    *failed_urls*, and *failed_depths* in place.  Returns
+    ``(written, skipped, failed)`` count deltas so the caller can accumulate
+    them.
 
     Args:
         queue: BFS queue of ``(url, depth)`` tuples to process.
@@ -270,7 +276,8 @@ def _drain_queue(
         max_depth: Maximum BFS depth ceiling.
         crawl_id: Opaque identifier for structured log correlation.
         output_paths: Accumulator for successfully written file paths.
-        skipped_urls: Accumulator for URLs skipped due to existing files.
+        skipped_urls: Accumulator for URLs skipped because output file exists.
+        empty_urls: Accumulator for URLs skipped because no content was found.
         failed_urls: Accumulator for URLs that failed fetch/conversion.
         failed_depths: Map from failed URL to the depth at which it failed;
             populated on ``PageToMdError`` so the retry pass can re-enqueue
@@ -351,7 +358,7 @@ def _drain_queue(
             # pages, or thin navigational stubs.  Treat as a skip (warn,
             # don't count as failure, don't emit a traceback).
             skipped += 1
-            skipped_urls.append(url)
+            empty_urls.append(url)
             _log.warning(
                 "crawl.page.empty",
                 url=redact_url(url),
@@ -440,6 +447,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
 
     output_paths: list[Path] = []
     skipped_urls: list[str] = []
+    empty_urls: list[str] = []
     failed_urls: list[str] = []
     failed_depths: dict[str, int] = {}
 
@@ -459,6 +467,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
             crawl_id=crawl_id,
             output_paths=output_paths,
             skipped_urls=skipped_urls,
+            empty_urls=empty_urls,
             failed_urls=failed_urls,
             failed_depths=failed_depths,
         )
@@ -506,6 +515,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
                 crawl_id=crawl_id,
                 output_paths=output_paths,
                 skipped_urls=skipped_urls,
+                empty_urls=empty_urls,
                 failed_urls=failed_urls,
                 failed_depths=failed_depths,
             )
@@ -528,6 +538,7 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
         "crawl.done",
         pages_written=pages_written,
         pages_skipped=pages_skipped,
+        pages_empty=len(empty_urls),
         pages_failed=pages_failed,
         crawl_id=crawl_id,
     )
@@ -538,5 +549,6 @@ def crawl(config: Config, *, max_depth: int = 1, retry_failed: bool = True) -> C
         output_dir=output_dir,
         output_paths=output_paths,
         skipped_urls=skipped_urls,
+        empty_urls=empty_urls,
         failed_urls=failed_urls,
     )

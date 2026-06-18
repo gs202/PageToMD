@@ -441,7 +441,8 @@ def _print_crawl_summary(result: CrawlResult) -> None:
     """Emit the crawl summary to stderr."""
     typer.echo(
         f"✓ crawl complete: {result.pages_written} written, "
-        f"{result.pages_skipped} skipped, {result.pages_failed} failed "
+        f"{result.pages_skipped} skipped, {len(result.empty_urls)} empty, "
+        f"{result.pages_failed} failed "
         f"(total {result.total})",
         err=True,
     )
@@ -449,6 +450,13 @@ def _print_crawl_summary(result: CrawlResult) -> None:
         typer.echo("", err=True)
         typer.echo("Skipped (file already exists — re-run with --overwrite):", err=True)
         for url in result.skipped_urls:
+            typer.echo(f"  {url}", err=True)
+    if result.empty_urls:
+        typer.echo("", err=True)
+        typer.echo(
+            "Empty (no extractable content — page may require auth or is a nav stub):", err=True
+        )
+        for url in result.empty_urls:
             typer.echo(f"  {url}", err=True)
     if result.failed_urls:
         typer.echo("", err=True)
