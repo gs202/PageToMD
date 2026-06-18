@@ -125,8 +125,7 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     cleaned_input_html, removed_counts = _preclean(doc.html, config.include_comments)
     bound.debug("extract.preclean.removed", **removed_counts)
 
-    extracted = trafilatura.extract(
-        cleaned_input_html,
+    _trafilatura_kwargs: dict[str, object] = dict(
         output_format="html",
         with_metadata=True,
         include_comments=config.include_comments,
@@ -137,6 +136,18 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
         favor_recall=True,
         url=doc.final_url,
     )
+    extracted = trafilatura.extract(cleaned_input_html, **_trafilatura_kwargs)  # type: ignore[arg-type]
+    if extracted is None or not extracted.strip():
+        # Preclean is a heuristic and can over-fire — e.g. when a portal page's
+        # main content lives inside an element whose class/id matches a junk
+        # pattern, decomposing it leaves trafilatura with nothing to work with.
+        # Fall back to the raw HTML so we always attempt a best-effort
+        # extraction before giving up.
+        bound.debug(
+            "extract.preclean_fallback",
+            reason="trafilatura_returned_none_after_preclean",
+        )
+        extracted = trafilatura.extract(doc.html, **_trafilatura_kwargs)  # type: ignore[arg-type]
     if extracted is None or not extracted.strip():
         raise ExtractionEmptyError("Extractor produced no readable content")
 
