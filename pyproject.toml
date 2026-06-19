@@ -24,9 +24,15 @@ keywords = [
     "frontmatter",
     "yaml",
     "playwright",
+    "rag",
+    "ai-agents",
+    "llm-context",
+    "context-window",
+    "web-crawler",
+    "agent-tools",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
@@ -34,7 +40,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Utilities",
     "Environment :: Console",
 ]
 dependencies = [
