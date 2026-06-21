@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.4.1] - 2026-06-21
+
+### Fixed
+
+- **FluidTopics / Paligo UUID-section extraction** (`extractor.py`) — pages served by
+  FluidTopics portals can embed topic content inside `<section id="UUID-…">` elements
+  within a single 1–2 MB SPA shell. Trafilatura cannot isolate a main-content block from
+  the full blob and returns `None`, causing `ExtractionEmptyError` even though the page
+  has rich content. A new `_extract_uuid_sections` fallback detects these sections, runs
+  trafilatura on each one individually, and concatenates the results — recovering sections
+  that were previously silently dropped.
+
 ## [0.4.0] - 2026-06-18
 
 ### Security
@@ -175,7 +187,8 @@ _Nothing yet._
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/gs202/PageToMD/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/gs202/PageToMD/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gs202/PageToMD/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gs202/PageToMD/compare/v0.1.0...v0.2.0
