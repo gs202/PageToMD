@@ -127,7 +127,13 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
 
     _trafilatura_kwargs: dict[str, object] = dict(
         output_format="html",
-        with_metadata=True,
+        # Metadata is fetched separately via ``_safe_extract_metadata`` below,
+        # so embedding it in the body HTML is redundant.  It is also unsafe:
+        # with ``output_format="html"`` trafilatura serializes every metadata
+        # field into ``<meta>`` tags, and list-valued fields (e.g. GitHub's
+        # ``categories`` -> ``['issue:…']``) crash lxml's ``SubElement`` with
+        # ``TypeError: Argument must be bytes or unicode, got 'list'``.
+        with_metadata=False,
         include_comments=config.include_comments,
         include_images=config.include_images,
         include_links=config.include_links,
