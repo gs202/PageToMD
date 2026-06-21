@@ -159,6 +159,13 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
             _tag.decompose()
         extracted = trafilatura.extract(str(soup_fallback), **_trafilatura_kwargs)  # type: ignore[arg-type]
     if extracted is None or not extracted.strip():
+        # FluidTopics / Paligo portals embed many <section id="UUID-…"> topics
+        # inside a single multi-megabyte SPA shell.  Trafilatura cannot isolate
+        # a single "main content" block from the full blob, so we detect UUID
+        # sections and extract each one individually, then concatenate the
+        # results.  This is the intended path for these portal pages.
+        extracted = _extract_uuid_sections(doc.html, _trafilatura_kwargs, bound)
+    if extracted is None or not extracted.strip():
         bound.warning(
             "extract.empty",
             raw_html_len=len(doc.html),
@@ -187,6 +194,59 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
         base_href=base_href,
     )
     return result
+
+
+_RE_UUID_SECTION: Final = re.compile(r"^UUID-", re.IGNORECASE)
+
+
+def _extract_uuid_sections(
+    html: str,
+    trafilatura_kwargs: dict[str, object],
+    bound: object,
+) -> str | None:
+    """Extract content from FluidTopics/Paligo UUID-keyed ``<section>`` elements.
+
+    When a portal page embeds many ``<section id="UUID-…">`` topics inside a
+    single SPA shell, trafilatura cannot isolate a single main-content block
+    from the full multi-megabyte blob.  This helper detects those sections,
+    runs trafilatura on each one individually, and concatenates the non-empty
+    results into a single HTML string.
+
+    Args:
+        html: Raw (or lightly pre-cleaned) HTML of the page.
+        trafilatura_kwargs: Keyword arguments forwarded to
+            :func:`trafilatura.extract` for each section.
+        bound: Bound structlog logger for debug/info messages.
+
+    Returns:
+        Concatenated HTML string of all successfully extracted sections, or
+        ``None`` when no UUID sections are found or all extractions fail.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    uuid_sections = soup.find_all(
+        "section", id=lambda x: isinstance(x, str) and bool(_RE_UUID_SECTION.match(x))
+    )
+    if not uuid_sections:
+        return None
+
+    bound.debug("extract.uuid_sections.found", count=len(uuid_sections))  # type: ignore[attr-defined]
+
+    parts: list[str] = []
+    for sec in uuid_sections:
+        if not isinstance(sec, Tag):
+            continue
+        # Drop always-drop tags within the section before passing to trafilatura.
+        for _tag in sec.find_all(_ALWAYS_DROP_TAGS):
+            _tag.decompose()
+        result = trafilatura.extract(str(sec), **trafilatura_kwargs)  # type: ignore[arg-type]
+        if result and result.strip():
+            parts.append(result)
+
+    if not parts:
+        return None
+
+    bound.info("extract.uuid_sections.ok", sections_extracted=len(parts))  # type: ignore[attr-defined]
+    return "\n".join(parts)
 
 
 _RE_BASE_HREF: Final = re.compile(

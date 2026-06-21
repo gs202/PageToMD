@@ -352,3 +352,201 @@ def test_extract_base_href_helper(html: str, expected: str | None) -> None:
     from pagetomd.extractor import _extract_base_href
 
     assert _extract_base_href(html) == expected
+
+
+# ---------------------------------------------------------------------------
+# Preclean-fallback path (line 159)
+# ---------------------------------------------------------------------------
+
+
+def test_preclean_fallback_rescues_content_in_junk_named_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When preclean over-fires and removes the main content, the fallback
+    minimal-strip pass should still recover it.
+
+    We simulate the over-fire by making trafilatura return ``None`` on the
+    first call (post-preclean) but return real content on the second call
+    (post-minimal-strip). This exercises the ``soup_fallback`` branch at
+    lines 157-160.
+    """
+    call_count = 0
+
+    def _patched_extract(html: str, **kwargs: object) -> str | None:
+        nonlocal call_count
+        call_count += 1
+        # First call (after preclean) → simulate over-fire.
+        if call_count == 1:
+            return None
+        # Second call (fallback) → return content regardless of HTML.
+        return f"<p>{_BODY}</p>"
+
+    monkeypatch.setattr("pagetomd.extractor.trafilatura.extract", _patched_extract)
+
+    html = (
+        f"<html><head><title>T</title></head>"
+        f"<body><article><h1>T</h1><p>{_BODY}</p></article></body></html>"
+    )
+    result = extract(make_fetched_doc(html), make_config())
+
+    assert call_count == 2
+    assert "meaningful body content" in result.cleaned_html
+
+
+# ---------------------------------------------------------------------------
+# _extract_uuid_sections (lines 232-249)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_uuid_sections_returns_none_when_no_uuid_sections() -> None:
+    """When no ``<section id="UUID-…">`` elements exist, the helper returns None."""
+    from pagetomd.extractor import _extract_uuid_sections
+
+    html = "<html><body><section id='regular-section'><p>hi</p></section></body></html>"
+    result = _extract_uuid_sections(html, {}, object())
+    assert result is None
+
+
+def test_extract_uuid_sections_concatenates_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UUID sections are each extracted individually and concatenated."""
+    call_num = 0
+
+    def _fake_extract(html: str, **kwargs: object) -> str | None:
+        nonlocal call_num
+        call_num += 1
+        # Return distinct content per call so we can verify concatenation.
+        return f"<p>section-{call_num}</p>"
+
+    monkeypatch.setattr("pagetomd.extractor.trafilatura.extract", _fake_extract)
+
+    import structlog
+
+    bound = structlog.get_logger()
+    from pagetomd.extractor import _extract_uuid_sections
+
+    html = (
+        "<html><body>"
+        "<section id='UUID-aaa'><p>Topic A</p></section>"
+        "<section id='UUID-bbb'><p>Topic B</p></section>"
+        "</body></html>"
+    )
+    result = _extract_uuid_sections(html, {}, bound)
+
+    assert result is not None
+    assert "section-1" in result
+    assert "section-2" in result
+    assert call_num == 2
+
+
+def test_extract_uuid_sections_returns_none_when_all_extractions_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Returns ``None`` when trafilatura returns ``None`` for every UUID section."""
+    monkeypatch.setattr("pagetomd.extractor.trafilatura.extract", lambda *a, **k: None)
+
+    import structlog
+
+    bound = structlog.get_logger()
+    from pagetomd.extractor import _extract_uuid_sections
+
+    html = "<html><body><section id='UUID-aaa'><p>x</p></section></body></html>"
+    result = _extract_uuid_sections(html, {}, bound)
+    assert result is None
+
+
+def test_extract_full_pipeline_falls_through_to_uuid_sections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When both preclean and fallback passes yield nothing, UUID sections
+    are attempted and their content is returned."""
+    call_count = 0
+
+    def _fake_extract(html: str, **kwargs: object) -> str | None:
+        nonlocal call_count
+        call_count += 1
+        # First two calls (preclean + fallback) → None.
+        if call_count <= 2:
+            return None
+        # UUID-section calls → real content.
+        return f"<p>{_BODY}</p>"
+
+    monkeypatch.setattr("pagetomd.extractor.trafilatura.extract", _fake_extract)
+
+    html = f"<html><body><section id='UUID-topic-1'><p>{_BODY}</p></section></body></html>"
+    result = extract(make_fetched_doc(html), make_config())
+
+    assert "meaningful body content" in result.cleaned_html
+    assert call_count >= 3
+
+
+# ---------------------------------------------------------------------------
+# Branch misses — structural loop detached-parent guard (line 320)
+# ---------------------------------------------------------------------------
+
+
+def test_preclean_structural_detached_parent_guard() -> None:
+    """Nested structural tags sharing a parent don't crash when the outer one
+    is decomposed first, leaving the inner with ``parent is None``."""
+    from pagetomd.extractor import _preclean
+
+    # A ``<nav>`` nested inside a ``<footer>`` — both are structural. When
+    # ``<footer>`` is decomposed first the inner ``<nav>`` becomes detached.
+    # The guard at line 316 (``if tag.parent is None: continue``) prevents a
+    # crash on the orphaned inner tag.
+    html = (
+        "<html><body>"
+        "<article><h1>Real</h1><p>Body</p></article>"
+        "<footer><nav>NAV INSIDE FOOTER</nav></footer>"
+        "</body></html>"
+    )
+    # Should not raise; structural items are removed.
+    cleaned, removed = _preclean(html, include_comments=False)
+    assert "NAV INSIDE FOOTER" not in cleaned
+    assert removed["structural"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Branch miss — role value not in _DROP_ROLES (line 349 → 341 arc)
+# ---------------------------------------------------------------------------
+
+
+def test_preclean_non_junk_role_is_kept() -> None:
+    """Elements with an irrelevant role (e.g. ``"main"``) are NOT dropped."""
+    from pagetomd.extractor import _preclean
+
+    html = '<html><body><div role="main"><p>Keep me</p></div></body></html>'
+    cleaned, removed = _preclean(html, include_comments=False)
+    assert "Keep me" in cleaned
+    assert removed["role"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Branch miss — match_lang_class with a plain string class attribute (line 398)
+# ---------------------------------------------------------------------------
+
+
+def test_match_lang_class_handles_string_class_attribute() -> None:
+    """``match_lang_class`` copes when bs4 gives a plain str for ``class``."""
+    from bs4 import BeautifulSoup
+
+    from pagetomd.extractor import match_lang_class
+
+    # Force a Tag with a plain-string class value by monkeypatching ``get``.
+    soup = BeautifulSoup("<code class='language-ruby'>x</code>", "lxml")
+    tag = soup.find("code")
+    assert tag is not None
+
+    # Temporarily replace get() to return a bare string instead of a list.
+    original_get = tag.get
+
+    def _str_get(key: str, default: object = None) -> object:
+        if key == "class":
+            return "language-ruby"
+        return original_get(key, default)
+
+    tag.get = _str_get  # type: ignore[method-assign]
+
+    result = match_lang_class(tag)  # type: ignore[arg-type]
+    assert result == "ruby"
