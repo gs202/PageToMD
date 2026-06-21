@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.4.2] - 2026-06-21
+
+### Fixed
+
+- **`TypeError` crash on pages with list-valued metadata** (`extractor.py`) — pages whose
+  metadata includes a list-valued field (e.g. GitHub issue pages, where `categories`
+  resolves to `['issue:…']`) crashed the pipeline with
+  `TypeError: Argument must be bytes or unicode, got 'list'`. With `output_format="html"`,
+  trafilatura serialized every metadata field into `<meta>` tags and passed the raw list to
+  lxml's `SubElement`, which rejects non-string attribute values. The body-extraction call
+  now uses `with_metadata=False`; metadata is still harvested separately and safely via
+  `_safe_extract_metadata`, so frontmatter is unaffected while the redundant (and unused)
+  embedded `<meta>` tags — and the crash — are gone.
+
 ## [0.4.1] - 2026-06-21
 
 ### Fixed
@@ -187,7 +201,8 @@ _Nothing yet._
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/gs202/PageToMD/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/gs202/PageToMD/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/gs202/PageToMD/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gs202/PageToMD/compare/v0.2.0...v0.3.0
