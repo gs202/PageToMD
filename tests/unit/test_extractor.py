@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 import pytest
 
+from pagetomd.converter import convert
 from pagetomd.exceptions import ExtractionEmptyError
 from pagetomd.extractor import ExtractedDoc, extract
+from pagetomd.postprocess import postprocess
 from tests.conftest import make_config, make_fetched_doc
 
 # A reasonably long article body — trafilatura ignores tiny inputs.
@@ -550,3 +553,89 @@ def test_match_lang_class_handles_string_class_attribute() -> None:
 
     result = match_lang_class(tag)  # type: ignore[arg-type]
     assert result == "ruby"
+
+
+# ---------------------------------------------------------------------------
+# PANW cross-reference link preservation (regression tests for the
+# FluidTopics/Paligo "see X" patterns documented in
+# `.idex/plans/2026-06-23-preserve-panw-cross-reference-links.md`).
+# ---------------------------------------------------------------------------
+
+
+def _render_panw_fixture(fixture_html: Callable[[str], str]) -> str:
+    """Run the full pipeline on ``panw_cross_refs.html`` and return Markdown.
+
+    Centralises the fetch-stub → extract → convert → postprocess wiring so
+    each regression test below only has to assert on the rendered output.
+    """
+    html = fixture_html("panw_cross_refs.html")
+    doc = make_fetched_doc(html, url="https://example.com/x")
+    cfg = make_config()
+    extracted = extract(doc, cfg)
+    body = convert(extracted.cleaned_html, cfg)
+    return postprocess(body, base_url="https://example.com/x")
+
+
+def test_preclean_lifts_orphan_anchor_into_preceding_paragraph(
+    fixture_html: Callable[[str], str],
+) -> None:
+    """Pattern A: bare ``<a>`` inside ``<li><p>…see X</p></li>`` survives intact.
+
+    Trafilatura currently promotes the ``<a>`` out of the inner ``<p>``,
+    producing an orphan-anchor sibling that renders as two visually-detached
+    Markdown blocks (a sentence ending in ``see`` followed by a dangling
+    link on its own line). The fix lifts the anchor back into the sentence
+    so the rendered Markdown keeps the entire phrase on a single bullet
+    line: ``"For more information, see [Cloud Identity Engine](…)."``
+    """
+    md = _render_panw_fixture(fixture_html)
+
+    expected = (
+        "Cloud Identity Engine must be set up. For more information, "
+        "see [Cloud Identity Engine]"
+        "(https://docs-cortex.paloaltonetworks.com/r/GD6sG6FlxDWxAn13_eZuUQ/"
+        "c~Ez47XfCHk0H2jLU85Vgg)."
+    )
+    assert expected in md, (
+        f"Pattern A link did not survive intact on its bullet line.\n"
+        f"Looked for: {expected!r}\nRendered Markdown was:\n{md}"
+    )
+
+
+def test_preclean_unwraps_xreftitle_span_inside_anchor(
+    fixture_html: Callable[[str], str],
+) -> None:
+    """Pattern B: ``<a><span class="xreftitle">…</span></a>`` is normalised.
+
+    The decorative ``<span class="xreftitle">`` must be unwrapped *during
+    pre-clean* so the anchor's link text becomes a direct text child of
+    the ``<a>``. End-to-end Markdown today already happens to render this
+    correctly because the converter strips inner span attributes, so the
+    real contract this test pins down is the structural unwrap inside
+    ``_preclean``: the rendered Markdown keeps the link, and the cleaned
+    HTML fed to trafilatura contains no ``xreftitle`` markup at all.
+    """
+    from pagetomd.extractor import _preclean
+
+    html = fixture_html("panw_cross_refs.html")
+    cleaned, _ = _preclean(html, include_comments=False)
+
+    # Structural contract: decorative span unwrapped in the pre-clean tree.
+    assert "xreftitle" not in cleaned, (
+        f"Decorative ``xreftitle`` span survived pre-clean:\n{cleaned}"
+    )
+
+    # End-to-end contract: the Pattern B link still renders.
+    md = _render_panw_fixture(fixture_html)
+    expected_link = (
+        "[Agentic Assistant role-based access control]"
+        "(https://docs-cortex.paloaltonetworks.com/r/GD6sG6FlxDWxAn13_eZuUQ/"
+        "lC97_80YTaLhcwWrxkWjoA)"
+    )
+    assert expected_link in md, (
+        f"Pattern B link missing from rendered Markdown.\n"
+        f"Looked for: {expected_link!r}\nRendered Markdown was:\n{md}"
+    )
+    assert "xreftitle" not in md, (
+        f"Decorative ``xreftitle`` class leaked into Markdown output:\n{md}"
+    )
