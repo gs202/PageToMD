@@ -639,3 +639,60 @@ def test_preclean_unwraps_xreftitle_span_inside_anchor(
     assert "xreftitle" not in md, (
         f"Decorative ``xreftitle`` class leaked into Markdown output:\n{md}"
     )
+
+
+@pytest.mark.parametrize(
+    ("html_snippet", "should_unwrap", "case_id"),
+    [
+        # Bare decorative span — unwrap.
+        (
+            '<a href="/x"><span class="xreftitle">Linked title</span></a>',
+            True,
+            "decorative_xreftitle",
+        ),
+        # No class at all — still a single child, still decorative.
+        ('<a href="/x"><span>Linked title</span></a>', True, "bare_span"),
+        # Multiple children — leave the span alone (an icon span next to text).
+        (
+            '<a href="/x"><span class="icon">★</span> Linked title</a>',
+            False,
+            "multiple_children",
+        ),
+        # Span carries an explicit role — keep, it is semantically meaningful.
+        (
+            '<a href="/x"><span role="img" class="badge">Linked title</span></a>',
+            False,
+            "role_attribute",
+        ),
+        # Span carries an aria-* hint — keep.
+        (
+            '<a href="/x"><span aria-label="external link">Linked title</span></a>',
+            False,
+            "aria_label",
+        ),
+        # Span class is on the accessibility blocklist — keep.
+        (
+            '<a href="/x"><span class="sr-only">Linked title</span></a>',
+            False,
+            "sr_only_blocklist",
+        ),
+    ],
+    ids=lambda v: v if isinstance(v, str) else "",
+)
+def test_unwrap_decorative_anchor_spans_edge_cases(
+    html_snippet: str, should_unwrap: bool, case_id: str
+) -> None:
+    """Pin down the conservative contract of the decorative-span unwrap."""
+    from pagetomd.extractor import _preclean
+
+    html = f"<html><body><article>{html_snippet}</article></body></html>"
+    cleaned, removed = _preclean(html, include_comments=False)
+
+    if should_unwrap:
+        assert "<span" not in cleaned, (
+            f"[{case_id}] expected <span> to be unwrapped, got:\n{cleaned}"
+        )
+        assert removed["decorative_spans"] == 1
+    else:
+        assert "<span" in cleaned, f"[{case_id}] expected <span> to be preserved, got:\n{cleaned}"
+        assert removed["decorative_spans"] == 0

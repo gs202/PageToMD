@@ -64,6 +64,14 @@ JUNK_PATTERNS: Final[re.Pattern[str]] = re.compile(
 
 _LINK_ATTRS_TO_DROP: Final[frozenset[str]] = frozenset({"target", "rel"})
 
+# Span ``class`` values that mark visually-hidden / screen-reader-only text.
+# When the *only* child of an ``<a>`` is a span carrying one of these
+# classes the span is kept as-is — unwrapping it would leak text intended
+# for assistive tech into the rendered Markdown.
+_ACCESSIBILITY_SPAN_CLASSES: Final[frozenset[str]] = frozenset(
+    {"sr-only", "screen-reader-only", "visually-hidden"}
+)
+
 # Patterns to recover a language hint from a ``<code>`` class list.
 # Shared with :mod:`pagetomd.converter`.
 LANG_CLASS_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
@@ -302,6 +310,7 @@ def _preclean(html: str, include_comments: bool) -> tuple[str, dict[str, int]]:
         "role": 0,
         "link_attrs": 0,
         "lang_annotated": 0,
+        "decorative_spans": 0,
     }
 
     # 1. Tags whose subtree we always discard.
@@ -374,6 +383,13 @@ def _preclean(html: str, include_comments: bool) -> tuple[str, dict[str, int]]:
             continue
         _annotate_code_language(pre, lang)
         removed["lang_annotated"] += 1
+
+    # 8. Unwrap decorative single-child ``<span>`` inside ``<a>``.
+    # FluidTopics / Paligo wrap xref link text in ``<span class="xreftitle">``.
+    # The span carries no semantic role and only complicates downstream
+    # rendering, so we replace it with its text content while keeping the
+    # surrounding anchor intact.
+    removed["decorative_spans"] += _unwrap_decorative_anchor_spans(soup)
 
     return str(soup), removed
 
@@ -469,6 +485,69 @@ def _scrub_anchor_attrs(anchor: Tag) -> bool:
             del anchor.attrs[attr]
             removed_any = True
     return removed_any
+
+
+def _unwrap_decorative_anchor_spans(soup: BeautifulSoup) -> int:
+    """Unwrap decorative single-child ``<span>`` elements inside ``<a>``.
+
+    Many documentation portals (FluidTopics / Paligo, in particular) wrap
+    cross-reference link text in a presentational ``<span class="xreftitle">``
+    (and similar) that adds no semantic value. The span complicates
+    downstream conversion by stuffing extra structure into the anchor.
+    When the anchor's *only* non-whitespace child is such a span, the
+    span is replaced by its text contents via :meth:`bs4.Tag.unwrap`.
+
+    The helper is conservative: it skips spans that carry an explicit
+    ``role`` / ``aria-*`` attribute, and spans whose class list is in
+    :data:`_ACCESSIBILITY_SPAN_CLASSES` (e.g. ``sr-only``). It also
+    leaves anchors with multiple children untouched so inline icons or
+    badges next to the link text survive.
+
+    Args:
+        soup: The :class:`~bs4.BeautifulSoup` tree to mutate in place.
+
+    Returns:
+        The number of spans that were unwrapped.
+    """
+    unwrapped = 0
+    for anchor in soup.find_all("a"):
+        if not isinstance(anchor, Tag):  # pragma: no cover - defensive
+            continue
+
+        # Collect non-whitespace children. A bare whitespace ``NavigableString``
+        # (e.g. line break between ``<a>`` and ``<span>``) does not count as a
+        # sibling for the "sole child" heuristic.
+        meaningful = [
+            child
+            for child in anchor.children
+            if isinstance(child, Tag) or (isinstance(child, str) and child.strip())
+        ]
+        if len(meaningful) != 1:
+            continue
+        only = meaningful[0]
+        if not isinstance(only, Tag) or only.name != "span":
+            continue
+
+        # Skip semantically-marked spans — accessibility text, ARIA labels,
+        # or anything carrying an explicit role attribute.
+        if "role" in only.attrs:
+            continue
+        if any(attr.startswith("aria-") for attr in only.attrs):
+            continue
+
+        raw_classes: object = only.get("class") or []
+        if isinstance(raw_classes, str):  # pragma: no cover - bs4 normalises to list
+            classes: list[str] = [raw_classes]
+        elif isinstance(raw_classes, list):
+            classes = [str(c) for c in raw_classes]
+        else:  # pragma: no cover - defensive
+            classes = []
+        if any(cls in _ACCESSIBILITY_SPAN_CLASSES for cls in classes):
+            continue
+
+        only.unwrap()
+        unwrapped += 1
+    return unwrapped
 
 
 def _safe_extract_metadata(html: str, bound: object) -> object | None:
