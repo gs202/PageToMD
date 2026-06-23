@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Final
 
 import trafilatura
 from bs4 import BeautifulSoup, Comment
-from bs4.element import Tag
+from bs4.element import NavigableString, Tag
 
 from pagetomd.exceptions import ExtractionEmptyError
 from pagetomd.logging import get_logger
@@ -71,6 +71,23 @@ _LINK_ATTRS_TO_DROP: Final[frozenset[str]] = frozenset({"target", "rel"})
 _ACCESSIBILITY_SPAN_CLASSES: Final[frozenset[str]] = frozenset(
     {"sr-only", "screen-reader-only", "visually-hidden"}
 )
+
+# Trailing phrases that indicate the preceding sentence is *introducing* a
+# cross-reference link (e.g. "...For more information, see"). Used to gate
+# the orphan-anchor lift so we never merge an unrelated trailing anchor
+# back into the preceding paragraph. Patterns are matched case-insensitively
+# against the rstripped tail of the previous-sibling's visible text.
+_ORPHAN_ANCHOR_TRIGGERS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\bsee\s*$", re.IGNORECASE),
+    re.compile(r"\bsee:\s*$", re.IGNORECASE),
+    re.compile(r"\brefer to\s*$", re.IGNORECASE),
+    re.compile(r"\bfor more information,?\s+see\s*$", re.IGNORECASE),
+)
+
+# Punctuation NavigableStrings that travel back into the paragraph alongside
+# the anchor (e.g. the trailing "." in "...see [Link]."). Restricted to a
+# tight set so we never pull in adjacent prose.
+_ANCHOR_TRAILING_PUNCT: Final[frozenset[str]] = frozenset({".", ",", ";", ":", "!", "?"})
 
 # Patterns to recover a language hint from a ``<code>`` class list.
 # Shared with :mod:`pagetomd.converter`.
@@ -189,6 +206,19 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
             final_url=redact_url(doc.final_url),
         )
         raise ExtractionEmptyError("Extractor produced no readable content")
+
+    # Re-run the orphan-anchor lift on trafilatura's output. The orphan-
+    # anchor shape (``<a>`` promoted out of an enclosing ``<p>``) almost
+    # always emerges *during* trafilatura's body extraction, not before
+    # it, so the pre-clean pass alone cannot rescue PANW FluidTopics /
+    # Paligo cross-references like "For more information, see [Link]."
+    # See plan .idex/plans/2026-06-23-preserve-panw-cross-reference-links.md
+    # tasks 3-4 for the failure mode and worked examples.
+    extracted_soup = BeautifulSoup(extracted, "lxml")
+    lifted = _lift_orphan_anchor_siblings(extracted_soup)
+    if lifted:
+        extracted = str(extracted_soup)
+        bound.debug("extract.orphan_anchors_lifted", count=lifted)
 
     meta = _safe_extract_metadata(cleaned_input_html, bound)
 
@@ -311,6 +341,7 @@ def _preclean(html: str, include_comments: bool) -> tuple[str, dict[str, int]]:
         "link_attrs": 0,
         "lang_annotated": 0,
         "decorative_spans": 0,
+        "orphan_anchors_lifted": 0,
     }
 
     # 1. Tags whose subtree we always discard.
@@ -390,6 +421,15 @@ def _preclean(html: str, include_comments: bool) -> tuple[str, dict[str, int]]:
     # rendering, so we replace it with its text content while keeping the
     # surrounding anchor intact.
     removed["decorative_spans"] += _unwrap_decorative_anchor_spans(soup)
+
+    # 9. Lift orphan ``<a>`` siblings back into the preceding ``<p>``/``<li>``.
+    # Defensive on the pre-clean tree (most portal HTML does not have the
+    # orphan-anchor shape until trafilatura repositions the node), but kept
+    # here so any source HTML that *does* present the shape is normalised
+    # before downstream stages see it. The same helper is invoked again in
+    # ``extract()`` on the post-trafilatura body, where the orphan pattern
+    # actually emerges for FluidTopics / Paligo cross-references.
+    removed["orphan_anchors_lifted"] += _lift_orphan_anchor_siblings(soup)
 
     return str(soup), removed
 
@@ -548,6 +588,89 @@ def _unwrap_decorative_anchor_spans(soup: BeautifulSoup) -> int:
         only.unwrap()
         unwrapped += 1
     return unwrapped
+
+
+def _matches_orphan_anchor_trigger(text: str) -> bool:
+    """Return ``True`` when the trailing tail of ``text`` matches a trigger phrase."""
+    tail = text.rstrip()
+    return any(pattern.search(tail) for pattern in _ORPHAN_ANCHOR_TRIGGERS)
+
+
+def _lift_orphan_anchor_siblings(soup: BeautifulSoup) -> int:
+    """Move orphan ``<a>`` elements back into the preceding ``<p>``/``<li>``.
+
+    Trafilatura's body-extraction algorithm occasionally promotes an ``<a>``
+    out of its enclosing paragraph, producing a tree shaped like::
+
+        <li><p>For more information, see</p><a href="…">Link</a>.</li>
+
+    Markdown rendering then emits the sentence and the link as two separate
+    blocks, breaking the prose flow. This helper finds every ``<a>`` whose
+    immediate previous sibling is a ``<p>`` / ``<li>`` whose visible text
+    ends with a "see"-style cross-reference cue (see
+    :data:`_ORPHAN_ANCHOR_TRIGGERS`), and moves the anchor — together with
+    any directly-adjacent trailing punctuation (``.``, ``,``, …) — into
+    the trailing position of that preceding container.
+
+    The transform is intentionally narrow: anchors that do not follow a
+    trigger phrase, or whose previous sibling is not a paragraph/list-item,
+    are left untouched. It is also idempotent — once the anchor is inside
+    the paragraph there is no orphan to lift on a subsequent pass.
+
+    Args:
+        soup: The :class:`~bs4.BeautifulSoup` tree to mutate in place.
+
+    Returns:
+        The number of anchors that were lifted.
+    """
+    lifted = 0
+    # Iterate over a materialised list because we mutate the tree as we go.
+    for anchor in list(soup.find_all("a")):
+        if not isinstance(anchor, Tag) or anchor.parent is None:
+            continue
+
+        # Find the previous *meaningful* sibling, skipping pure whitespace.
+        prev = anchor.previous_sibling
+        while isinstance(prev, NavigableString) and not prev.strip():
+            prev = prev.previous_sibling
+
+        if not isinstance(prev, Tag) or prev.name not in {"p", "li"}:
+            continue
+        if not _matches_orphan_anchor_trigger(prev.get_text(" ", strip=False)):
+            continue
+
+        # Collect the anchor and any directly-following trailing punctuation
+        # NavigableStrings so the moved phrase keeps its terminating period.
+        to_move: list[Tag | NavigableString] = [anchor]
+        cursor = anchor.next_sibling
+        while isinstance(cursor, NavigableString):
+            stripped = cursor.strip()
+            if not stripped:
+                # Pull along intervening whitespace if it sits between the
+                # anchor and a trailing punctuation token; otherwise stop.
+                nxt = cursor.next_sibling
+                if isinstance(nxt, NavigableString) and nxt.strip() in _ANCHOR_TRAILING_PUNCT:
+                    to_move.append(cursor)
+                    cursor = nxt
+                    continue
+                break
+            if stripped in _ANCHOR_TRAILING_PUNCT:
+                to_move.append(cursor)
+                cursor = cursor.next_sibling
+                continue
+            break
+
+        # Detach in order, then re-attach inside ``prev`` preserving order.
+        # Prepend a single space if the paragraph does not already end in
+        # whitespace, so we never glue "see" directly to "[Link]".
+        prev_text = prev.get_text("", strip=False)
+        if prev_text and not prev_text[-1].isspace():
+            prev.append(NavigableString(" "))
+        for node in to_move:
+            node.extract()
+            prev.append(node)
+        lifted += 1
+    return lifted
 
 
 def _safe_extract_metadata(html: str, bound: object) -> object | None:

@@ -696,3 +696,100 @@ def test_unwrap_decorative_anchor_spans_edge_cases(
     else:
         assert "<span" in cleaned, f"[{case_id}] expected <span> to be preserved, got:\n{cleaned}"
         assert removed["decorative_spans"] == 0
+
+
+# ---------------------------------------------------------------------------
+# `_lift_orphan_anchor_siblings` helper — exhaustive edge-case coverage.
+# ---------------------------------------------------------------------------
+
+
+def _lift_and_serialize(snippet: str) -> tuple[str, int]:
+    """Run ``_lift_orphan_anchor_siblings`` over ``snippet`` and return (html, lifted)."""
+    from bs4 import BeautifulSoup
+
+    from pagetomd.extractor import _lift_orphan_anchor_siblings
+
+    soup = BeautifulSoup(snippet, "lxml")
+    lifted = _lift_orphan_anchor_siblings(soup)
+    body = soup.body
+    return ("".join(str(c) for c in body.contents) if body is not None else str(soup), lifted)
+
+
+def test_lift_orphan_anchor_basic_p_sibling() -> None:
+    """Anchor whose previous sibling is a ``<p>`` ending in 'see' is lifted."""
+    snippet = (
+        '<div><p>For more information, see</p><a href="https://example.com/x">Link text</a>.</div>'
+    )
+    out, lifted = _lift_and_serialize(snippet)
+    assert lifted == 1
+    assert '<p>For more information, see <a href="https://example.com/x">Link text</a>.</p>' in out
+
+
+def test_lift_orphan_anchor_basic_li_sibling() -> None:
+    """Same lift applies when the trigger sentence lives in a ``<li>``."""
+    snippet = (
+        '<ul><li>For more information, see</li><a href="https://example.com/x">Link text</a>.</ul>'
+    )
+    out, lifted = _lift_and_serialize(snippet)
+    assert lifted == 1
+    assert (
+        '<li>For more information, see <a href="https://example.com/x">Link text</a>.</li>' in out
+    )
+
+
+def test_lift_orphan_anchor_skips_non_trigger_sentence() -> None:
+    """No trigger phrase → anchor is left alone (false-positive guard)."""
+    snippet = (
+        "<div>"
+        "<p>Unrelated sentence that does not end with the trigger phrase.</p>"
+        '<a href="https://example.com/x">Standalone link</a>'
+        "</div>"
+    )
+    out, lifted = _lift_and_serialize(snippet)
+    assert lifted == 0
+    assert '</p><a href="https://example.com/x">Standalone link</a>' in out
+
+
+def test_lift_orphan_anchor_skips_when_no_p_or_li_sibling() -> None:
+    """Previous sibling is a <div> → not a target container; leave alone."""
+    snippet = (
+        "<section>"
+        "<div>For more information, see</div>"
+        '<a href="https://example.com/x">Link</a>.'
+        "</section>"
+    )
+    out, lifted = _lift_and_serialize(snippet)
+    assert lifted == 0
+    assert "<div>For more information, see</div>" in out
+
+
+def test_lift_orphan_anchor_is_idempotent() -> None:
+    """A second pass on already-lifted HTML must be a no-op."""
+    from bs4 import BeautifulSoup
+
+    from pagetomd.extractor import _lift_orphan_anchor_siblings
+
+    snippet = '<div><p>For more information, see</p><a href="https://example.com/x">Link</a>.</div>'
+    soup = BeautifulSoup(snippet, "lxml")
+    first = _lift_orphan_anchor_siblings(soup)
+    second = _lift_orphan_anchor_siblings(soup)
+    assert first == 1
+    assert second == 0
+
+
+@pytest.mark.parametrize(
+    "trailing",
+    [".", ",", ";", ":"],
+    ids=["period", "comma", "semicolon", "colon"],
+)
+def test_lift_orphan_anchor_pulls_trailing_punctuation(trailing: str) -> None:
+    """Trailing punctuation NavigableString travels back into the paragraph."""
+    snippet = (
+        "<div>"
+        "<p>For more information, see</p>"
+        f'<a href="https://example.com/x">Link</a>{trailing}'
+        "</div>"
+    )
+    out, lifted = _lift_and_serialize(snippet)
+    assert lifted == 1
+    assert f'<a href="https://example.com/x">Link</a>{trailing}</p>' in out
