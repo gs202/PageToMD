@@ -4,10 +4,56 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import Final
 
 import structlog
 
 __all__ = ["configure_logging", "get_logger"]
+
+# Third-party libraries that log verbosely at DEBUG/INFO via the stdlib
+# :mod:`logging` module. trafilatura (and its dependencies courlan / htmldate /
+# readability) emit hundreds of internal diagnostics per page — e.g.
+# ``list link text/total: 15/15``, ``discarding element: slot None``,
+# ``Recovering wild text elements``, ``extra in p: …``, ``unknown attribute: …``.
+# None of these are actionable for pagetomd users, so we pin each logger to a
+# floor level to keep the console readable. See :func:`_quiet_noisy_libraries`.
+_NOISY_LIBRARY_LOGGERS: Final[tuple[str, ...]] = (
+    "trafilatura",
+    "courlan",
+    "htmldate",
+    "readability",
+)
+
+# Floor applied to the noisy library loggers when our own level is INFO or
+# higher. WARNING keeps genuine library problems visible while silencing the
+# DEBUG/INFO firehose.
+_NOISY_LIBRARY_FLOOR: Final[int] = logging.WARNING
+
+
+def _quiet_noisy_libraries(app_level: int) -> None:
+    """Pin verbose third-party loggers so their DEBUG/INFO noise is silenced.
+
+    The suppression is *overridable by verbosity*: when the application runs at
+    ``DEBUG`` (e.g. via ``--debug`` / ``--log-level=debug``) the library loggers
+    are allowed to emit at the application's own level, so a developer who
+    explicitly asked for debug output also sees trafilatura's internals. When
+    the application level is ``INFO`` or higher, each library logger is pinned to
+    :data:`_NOISY_LIBRARY_FLOOR` (``WARNING``) so the per-page firehose
+    (``list link text``, ``extra in p``, ``Recovering wild text elements``, …)
+    disappears while genuine warnings still surface.
+
+    Args:
+        app_level: The numeric stdlib level the application itself is using
+            (e.g. :data:`logging.INFO`). When this is ``DEBUG`` the library
+            loggers inherit it verbatim (the developer asked for everything);
+            for any level at ``INFO`` or higher the libraries are pinned to the
+            WARNING floor, which both silences the INFO/DEBUG firehose and
+            keeps genuine library warnings visible even under
+            ``--log-level=error``.
+    """
+    effective = app_level if app_level <= logging.DEBUG else _NOISY_LIBRARY_FLOOR
+    for logger_name in _NOISY_LIBRARY_LOGGERS:
+        logging.getLogger(logger_name).setLevel(effective)
 
 
 def configure_logging(level: str = "info", json_mode: bool = False) -> None:
@@ -36,6 +82,11 @@ def configure_logging(level: str = "info", json_mode: bool = False) -> None:
         format="%(message)s",
         force=True,
     )
+
+    # Silence verbose third-party libraries (trafilatura et al.) unless the
+    # user explicitly asked for debug output. Must run *after* basicConfig so
+    # our per-logger floor wins over the root level it just set.
+    _quiet_noisy_libraries(numeric_level)
 
     renderer: structlog.types.Processor
     if json_mode:
