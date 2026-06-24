@@ -9,7 +9,12 @@ import pytest
 
 from pagetomd.converter import convert
 from pagetomd.exceptions import ExtractionEmptyError
-from pagetomd.extractor import ExtractedDoc, extract
+from pagetomd.extractor import (
+    ExtractedDoc,
+    _resolve_title,
+    _title_from_html,
+    extract,
+)
 from pagetomd.postprocess import postprocess
 from tests.conftest import make_config, make_fetched_doc
 
@@ -31,6 +36,81 @@ def test_happy_path_returns_title_and_body() -> None:
     assert isinstance(result, ExtractedDoc)
     assert result.title == "Title"
     assert "meaningful body content" in result.cleaned_html
+
+
+def test_title_tag_wins_over_leading_note_admonition() -> None:
+    """Regression: the page title must come from ``<title>``, not "Note".
+
+    On SPA documentation portals the body's first heading is often a "Note"
+    admonition, and trafilatura's title heuristic latches onto it while
+    filing the real title under ``sitename``. The page's own ``<title>`` tag
+    carries the correct, author-declared title — with the site name appended
+    via a separator — so it must win.
+    """
+    html = (
+        "<html><head><title>Page Title \u2022 Documentation Section "
+        "\u2022 Example Docs Portal</title></head>"
+        "<body><article><h1>Note</h1>"
+        f"<p>{_BODY}</p></article></body></html>"
+    )
+    result = extract(make_fetched_doc(html), make_config())
+
+    assert result.title == "Page Title"
+
+
+def test_resolve_title_prefers_title_tag_over_trafilatura() -> None:
+    """The page-declared ``<title>`` segment beats trafilatura's guess."""
+    assert (
+        _resolve_title(
+            title_tag="Page Title",
+            trafilatura_title="Note",
+            site_name="Example Docs Portal",
+        )
+        == "Page Title"
+    )
+
+
+def test_resolve_title_falls_back_when_title_is_only_site_name() -> None:
+    """A ``<title>`` that is just the site name must not shadow a real title.
+
+    Guards the v0.1.0/v0.2.0 SPA-shell case: an unrendered shell whose
+    ``<title>`` is nothing but the site name defers to trafilatura's title.
+    """
+    assert (
+        _resolve_title(
+            title_tag="Example Docs Portal",
+            trafilatura_title="Real Article Heading",
+            site_name="Example Docs Portal",
+        )
+        == "Real Article Heading"
+    )
+
+
+def test_resolve_title_falls_back_when_no_title_tag() -> None:
+    """With no ``<title>`` tag, trafilatura's title is used."""
+    assert (
+        _resolve_title(
+            title_tag=None,
+            trafilatura_title="Fallback Title",
+            site_name=None,
+        )
+        == "Fallback Title"
+    )
+
+
+def test_title_from_html_strips_site_name_suffix() -> None:
+    """The leading segment before a separator is the page-specific title."""
+    html = (
+        "<html><head><title>Page Title \u2022 Documentation Section "
+        "\u2022 Example Docs Portal</title></head>"
+        "<body></body></html>"
+    )
+    assert _title_from_html(html) == "Page Title"
+
+
+def test_title_from_html_returns_none_without_title_tag() -> None:
+    """No ``<title>`` element yields ``None``."""
+    assert _title_from_html("<html><body><p>hi</p></body></html>") is None
 
 
 def test_script_and_style_are_stripped() -> None:
@@ -145,8 +225,14 @@ def test_extraction_empty_when_trafilatura_returns_falsy(
         extract(make_fetched_doc(f"<html><body><p>{_BODY}</p></body></html>"), make_config())
 
 
-def test_metadata_exception_falls_back_to_all_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If trafilatura's metadata call blows up, extraction still succeeds."""
+def test_metadata_exception_recovers_title_from_title_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If trafilatura's metadata call blows up, extraction still succeeds.
+
+    The title is recovered from the page's ``<title>`` tag (independent of
+    trafilatura's metadata heuristic); every other metadata field is ``None``.
+    """
 
     def _boom(*_a: object, **_k: object) -> object:
         raise RuntimeError("metadata gremlin")
@@ -159,7 +245,8 @@ def test_metadata_exception_falls_back_to_all_none(monkeypatch: pytest.MonkeyPat
     )
     result = extract(make_fetched_doc(html), make_config())
 
-    assert result.title is None
+    # Title comes from the <title> tag, not trafilatura metadata.
+    assert result.title == "T"
     assert result.author is None
     assert result.date is None
     assert result.description is None
@@ -883,9 +970,9 @@ def test_extract_does_not_drop_shared_content_across_pages() -> None:
     page.
     """
     shared = (
-        "Understand more about the Cortex Query Language called XQL, so you "
-        "can build queries to gain insight from the data contained in the "
-        "different data sources in Cortex XDR."
+        "Understand more about the query language so you can build queries to "
+        "gain insight from the data contained in the different data sources "
+        "available in the product."
     )
 
     def page(unique_marker: str) -> str:
@@ -910,7 +997,7 @@ def test_extract_does_not_drop_shared_content_across_pages() -> None:
         last_result = extract(make_fetched_doc(page(marker)), config)
 
     assert last_result is not None
-    assert "Understand more about the Cortex Query Language" in last_result.cleaned_html, (
+    assert "Understand more about the query language" in last_result.cleaned_html, (
         "Shared boilerplate paragraph was dropped on a later page — the "
         "extractor's output depends on crawl position (cross-page dedup "
         "cache pollution).\n"
