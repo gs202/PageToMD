@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **Cross-reference links preserved through extraction** (`extractor.py`) — documentation-portal
+  cross-references like "For more information, see [Link]." no longer render as a dangling link
+  on a separate line. Decorative spans inside anchors are unwrapped and orphaned anchors are
+  lifted back into the preceding sentence.
+- **Verbose trafilatura output silenced** (`logging.py`) — trafilatura and friends
+  (`courlan`, `htmldate`, `readability`) are pinned to a WARNING floor unless `--log-level=debug`
+  is set, removing the per-page DEBUG/INFO firehose.
 
 ## [0.4.2] - 2026-06-21
 
