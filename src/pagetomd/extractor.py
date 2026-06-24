@@ -170,7 +170,19 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
         include_images=config.include_images,
         include_links=config.include_links,
         include_tables=True,
-        deduplicate=True,
+        # Deduplication MUST stay off. Trafilatura's ``deduplicate=True`` keeps
+        # a *process-global* LRU cache (``trafilatura.deduplication.LRU_TEST``)
+        # that persists across every ``trafilatura.extract`` call in the
+        # process. In crawl mode many sibling portal pages share the same
+        # intro/abstract paragraphs and boilerplate prose; once such a
+        # paragraph has been seen on a few earlier pages, the cache drops it
+        # from later pages — so the SAME page yields complete content when
+        # fetched standalone (fresh process, empty cache) but loses paragraphs
+        # when reached deep in a crawl. That cross-page pollution also makes
+        # the extractor non-deterministic. Disabling deduplication removes the
+        # shared mutable state entirely; genuine page chrome is already
+        # stripped by ``_preclean`` and the per-section UUID handling below.
+        deduplicate=False,
         favor_recall=True,
         url=doc.final_url,
     )
