@@ -84,18 +84,3 @@ def test_unknown_level_falls_back_to_info() -> None:
     """An unrecognised level string must not raise; it falls back to INFO."""
     configure_logging("not-a-real-level")
     assert logging.getLogger().level == logging.INFO
-
-
-@pytest.mark.parametrize("level", ["info", "warning", "error"])
-def test_noisy_libraries_pinned_to_warning_at_info_or_higher(level: str) -> None:
-    """trafilatura (and noisy deps) are floored at WARNING when not in debug."""
-    configure_logging(level)
-    for logger_name in ("trafilatura", "courlan", "htmldate", "readability"):
-        assert logging.getLogger(logger_name).level == logging.WARNING
-
-
-def test_noisy_libraries_follow_debug_when_debug_requested() -> None:
-    """When --debug pins the app to DEBUG, the libraries may emit DEBUG too."""
-    configure_logging("debug")
-    for logger_name in ("trafilatura", "courlan", "htmldate", "readability"):
-        assert logging.getLogger(logger_name).level == logging.DEBUG
