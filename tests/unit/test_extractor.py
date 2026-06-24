@@ -556,19 +556,19 @@ def test_match_lang_class_handles_string_class_attribute() -> None:
 
 
 # ---------------------------------------------------------------------------
-# PANW cross-reference link preservation (regression tests for the
-# FluidTopics/Paligo "see X" patterns documented in
-# `.idex/plans/2026-06-23-preserve-panw-cross-reference-links.md`).
+# Cross-reference link preservation (regression tests for the "see X"
+# patterns documented in
+# `.idex/plans/2026-06-23-preserve-cross-reference-links.md`).
 # ---------------------------------------------------------------------------
 
 
-def _render_panw_fixture(fixture_html: Callable[[str], str]) -> str:
-    """Run the full pipeline on ``panw_cross_refs.html`` and return Markdown.
+def _render_cross_ref_fixture(fixture_html: Callable[[str], str]) -> str:
+    """Run the full pipeline on ``cross_reference_links.html`` and return Markdown.
 
     Centralises the fetch-stub → extract → convert → postprocess wiring so
     each regression test below only has to assert on the rendered output.
     """
-    html = fixture_html("panw_cross_refs.html")
+    html = fixture_html("cross_reference_links.html")
     doc = make_fetched_doc(html, url="https://example.com/x")
     cfg = make_config()
     extracted = extract(doc, cfg)
@@ -586,14 +586,14 @@ def test_preclean_lifts_orphan_anchor_into_preceding_paragraph(
     Markdown blocks (a sentence ending in ``see`` followed by a dangling
     link on its own line). The fix lifts the anchor back into the sentence
     so the rendered Markdown keeps the entire phrase on a single bullet
-    line: ``"For more information, see [Cloud Identity Engine](…)."``
+    line: ``"For more information, see [Identity Engine Setup](…)."``
     """
-    md = _render_panw_fixture(fixture_html)
+    md = _render_cross_ref_fixture(fixture_html)
 
     expected = (
-        "Cloud Identity Engine must be set up. For more information, "
-        "see [Cloud Identity Engine]"
-        "(https://docs-cortex.paloaltonetworks.com/r/GD6sG6FlxDWxAn13_eZuUQ/"
+        "Identity Engine must be set up. For more information, "
+        "see [Identity Engine Setup]"
+        "(https://docs.example.com/r/GD6sG6FlxDWxAn13_eZuUQ/"
         "c~Ez47XfCHk0H2jLU85Vgg)."
     )
     assert expected in md, (
@@ -617,7 +617,7 @@ def test_preclean_unwraps_xreftitle_span_inside_anchor(
     """
     from pagetomd.extractor import _preclean
 
-    html = fixture_html("panw_cross_refs.html")
+    html = fixture_html("cross_reference_links.html")
     cleaned, _ = _preclean(html, include_comments=False)
 
     # Structural contract: decorative span unwrapped in the pre-clean tree.
@@ -626,10 +626,10 @@ def test_preclean_unwraps_xreftitle_span_inside_anchor(
     )
 
     # End-to-end contract: the Pattern B link still renders.
-    md = _render_panw_fixture(fixture_html)
+    md = _render_cross_ref_fixture(fixture_html)
     expected_link = (
-        "[Agentic Assistant role-based access control]"
-        "(https://docs-cortex.paloaltonetworks.com/r/GD6sG6FlxDWxAn13_eZuUQ/"
+        "[Assistant role-based access control]"
+        "(https://docs.example.com/r/GD6sG6FlxDWxAn13_eZuUQ/"
         "lC97_80YTaLhcwWrxkWjoA)"
     )
     assert expected_link in md, (
@@ -793,3 +793,71 @@ def test_lift_orphan_anchor_pulls_trailing_punctuation(trailing: str) -> None:
     out, lifted = _lift_and_serialize(snippet)
     assert lifted == 1
     assert f'<a href="https://example.com/x">Link</a>{trailing}</p>' in out
+
+
+def test_lift_orphan_anchor_ignores_trigger_word_deep_inside_long_paragraph() -> None:
+    """Tail-window cap prevents an early "see" deep in a paragraph from firing the lift.
+
+    Regression guard for a class of false positives where the orphan-anchor
+    matcher scanned the entire previous-sibling text. A long paragraph that
+    ends in a benign sentence — but happens to contain ``"see"`` earlier
+    (e.g. ``"...click here to see..."``) — must NOT trigger the lift on
+    an unrelated trailing ``<a>`` sibling.
+    """
+    long_prefix = "Lorem ipsum click here to see " + ("lorem ipsum " * 50)
+    benign_tail = "and then we are done."
+    paragraph_text = long_prefix + benign_tail
+
+    snippet = f'<div><p>{paragraph_text}</p><a href="https://example.com/x">Unrelated</a></div>'
+    out, lifted = _lift_and_serialize(snippet)
+
+    assert lifted == 0, (
+        "Tail-window cap broken: an early 'see' inside a long paragraph fired the "
+        "orphan-anchor lift on an unrelated trailing anchor."
+    )
+    # Anchor must remain an orphan sibling of the paragraph, not pulled inside.
+    assert '</p><a href="https://example.com/x">Unrelated</a>' in out
+
+
+def test_extract_lifts_orphan_anchor_from_post_trafilatura_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Second-invocation lift rescues the orphan-anchor shape that emerges in trafilatura output.
+
+    The orphan-anchor pattern (``<a>`` promoted out of an enclosing ``<p>``)
+    is most often produced *by* trafilatura's body extraction rather than
+    being present in the source HTML. The post-trafilatura ``_lift_orphan_
+    anchor_siblings`` invocation at the top of :func:`extract` is the
+    load-bearing rescue path; this test patches ``trafilatura.extract`` to
+    return a body that already exhibits the orphan-anchor shape and asserts
+    that the returned ``cleaned_html`` contains the link inline — proving
+    the second invocation lifted it back into the preceding paragraph.
+    """
+    mangled_body = (
+        '<div><p>For more information, see</p><a href="https://example.com/x">Link text</a>.</div>'
+    )
+
+    monkeypatch.setattr(
+        "pagetomd.extractor.trafilatura.extract",
+        lambda *_a, **_k: mangled_body,
+    )
+
+    html = (
+        f"<html><head><title>T</title></head>"
+        f"<body><article><h1>T</h1><p>{_BODY}</p></article></body></html>"
+    )
+    result = extract(make_fetched_doc(html), make_config())
+
+    # After the lift, the anchor sits inside the preceding ``<p>`` directly
+    # following the word ``see`` (separated by whitespace). The exact failure
+    # symptom this guards against is an *orphan* ``<a>`` sibling outside the
+    # ``<p>`` — i.e. the substring ``</p><a`` appearing in the output.
+    assert "see <a " in result.cleaned_html, (
+        "Post-trafilatura `_lift_orphan_anchor_siblings` invocation did not "
+        "rescue the orphan anchor (link text not inline after 'see').\n"
+        f"Got cleaned_html:\n{result.cleaned_html}"
+    )
+    assert "</p><a" not in result.cleaned_html, (
+        "Anchor remained an orphan sibling outside the paragraph.\n"
+        f"Got cleaned_html:\n{result.cleaned_html}"
+    )

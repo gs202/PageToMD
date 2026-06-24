@@ -54,7 +54,7 @@ JUNK_PATTERNS: Final[re.Pattern[str]] = re.compile(
     r"\b(cookie|consent|gdpr|newsletter|subscribe|signup|paywall|advert|"
     r"promo|sponsor|share|social|related|recommend|comments?|trending|"
     r"popular|sidebar|breadcrumb|skip-?(to-)?content|"
-    # FluidTopics portal UI chrome (repeated around every topic)
+    # Documentation-portal UI chrome (repeated around every topic)
     r"ft-popup-presenter|notificationcenter|drawerlasagna|"
     r"floating-container|banner-container|application-tools|"
     r"component-loader|loadingevent|feedback|topic-metadata|"
@@ -76,13 +76,20 @@ _ACCESSIBILITY_SPAN_CLASSES: Final[frozenset[str]] = frozenset(
 # cross-reference link (e.g. "...For more information, see"). Used to gate
 # the orphan-anchor lift so we never merge an unrelated trailing anchor
 # back into the preceding paragraph. Patterns are matched case-insensitively
-# against the rstripped tail of the previous-sibling's visible text.
+# against the last ``_ORPHAN_ANCHOR_TAIL_WINDOW`` characters of the rstripped
+# previous-sibling text.
 _ORPHAN_ANCHOR_TRIGGERS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bsee\s*$", re.IGNORECASE),
     re.compile(r"\bsee:\s*$", re.IGNORECASE),
     re.compile(r"\brefer to\s*$", re.IGNORECASE),
     re.compile(r"\bfor more information,?\s+see\s*$", re.IGNORECASE),
 )
+
+# Characters of trailing text scanned for a trigger phrase. Keeps the
+# match anchored to the actual sentence end so an early "...see" deep
+# inside a long paragraph cannot accidentally fire the orphan-anchor
+# lift on an unrelated trailing ``<a>``.
+_ORPHAN_ANCHOR_TAIL_WINDOW: Final[int] = 80
 
 # Punctuation NavigableStrings that travel back into the paragraph alongside
 # the anchor (e.g. the trailing "." in "...see [Link]."). Restricted to a
@@ -122,8 +129,8 @@ class ExtractedDoc:
 def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     """Pre-clean ``doc.html`` then run trafilatura over the result.
 
-    For FluidTopics / Paligo portals the rendered HTML contains many
-    ``<section id="UUID-…">`` elements — one per topic — each wrapped in
+    Some documentation portals render every topic into a single
+    ``<section id="UUID-…">`` element — one per topic — each wrapped in
     identical UI chrome (print buttons, feedback dialogs, sign-in modals).
     Passing the full multi-megabyte blob to trafilatura causes it to pick
     only one "main content" block and discard the rest.  When UUID sections
@@ -190,7 +197,7 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
             _tag.decompose()
         extracted = trafilatura.extract(str(soup_fallback), **_trafilatura_kwargs)  # type: ignore[arg-type]
     if extracted is None or not extracted.strip():
-        # FluidTopics / Paligo portals embed many <section id="UUID-…"> topics
+        # Some documentation portals embed many <section id="UUID-…"> topics
         # inside a single multi-megabyte SPA shell.  Trafilatura cannot isolate
         # a single "main content" block from the full blob, so we detect UUID
         # sections and extract each one individually, then concatenate the
@@ -210,10 +217,11 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     # Re-run the orphan-anchor lift on trafilatura's output. The orphan-
     # anchor shape (``<a>`` promoted out of an enclosing ``<p>``) almost
     # always emerges *during* trafilatura's body extraction, not before
-    # it, so the pre-clean pass alone cannot rescue PANW FluidTopics /
-    # Paligo cross-references like "For more information, see [Link]."
-    # See plan .idex/plans/2026-06-23-preserve-panw-cross-reference-links.md
-    # tasks 3-4 for the failure mode and worked examples.
+    # it, so the pre-clean pass alone cannot rescue cross-references
+    # like "For more information, see [Link]." emitted by documentation
+    # portals that nest the anchor inside extra wrappers. See plan
+    # .idex/plans/2026-06-23-preserve-cross-reference-links.md tasks 3-4
+    # for the failure mode and worked examples.
     extracted_soup = BeautifulSoup(extracted, "lxml")
     lifted = _lift_orphan_anchor_siblings(extracted_soup)
     if lifted:
@@ -248,7 +256,7 @@ def _extract_uuid_sections(
     trafilatura_kwargs: dict[str, object],
     bound: object,
 ) -> str | None:
-    """Extract content from FluidTopics/Paligo UUID-keyed ``<section>`` elements.
+    """Extract content from UUID-keyed ``<section>`` elements.
 
     When a portal page embeds many ``<section id="UUID-…">`` topics inside a
     single SPA shell, trafilatura cannot isolate a single main-content block
@@ -416,19 +424,20 @@ def _preclean(html: str, include_comments: bool) -> tuple[str, dict[str, int]]:
         removed["lang_annotated"] += 1
 
     # 8. Unwrap decorative single-child ``<span>`` inside ``<a>``.
-    # FluidTopics / Paligo wrap xref link text in ``<span class="xreftitle">``.
-    # The span carries no semantic role and only complicates downstream
-    # rendering, so we replace it with its text content while keeping the
-    # surrounding anchor intact.
+    # Several documentation portals wrap xref link text in a presentational
+    # ``<span class="xreftitle">`` (and similar). The span carries no
+    # semantic role and only complicates downstream rendering, so we
+    # replace it with its text content while keeping the surrounding
+    # anchor intact.
     removed["decorative_spans"] += _unwrap_decorative_anchor_spans(soup)
 
     # 9. Lift orphan ``<a>`` siblings back into the preceding ``<p>``/``<li>``.
-    # Defensive on the pre-clean tree (most portal HTML does not have the
+    # Defensive on the pre-clean tree (most source HTML does not have the
     # orphan-anchor shape until trafilatura repositions the node), but kept
     # here so any source HTML that *does* present the shape is normalised
     # before downstream stages see it. The same helper is invoked again in
     # ``extract()`` on the post-trafilatura body, where the orphan pattern
-    # actually emerges for FluidTopics / Paligo cross-references.
+    # actually emerges for nested cross-reference markup.
     removed["orphan_anchors_lifted"] += _lift_orphan_anchor_siblings(soup)
 
     return str(soup), removed
@@ -530,12 +539,12 @@ def _scrub_anchor_attrs(anchor: Tag) -> bool:
 def _unwrap_decorative_anchor_spans(soup: BeautifulSoup) -> int:
     """Unwrap decorative single-child ``<span>`` elements inside ``<a>``.
 
-    Many documentation portals (FluidTopics / Paligo, in particular) wrap
-    cross-reference link text in a presentational ``<span class="xreftitle">``
-    (and similar) that adds no semantic value. The span complicates
-    downstream conversion by stuffing extra structure into the anchor.
-    When the anchor's *only* non-whitespace child is such a span, the
-    span is replaced by its text contents via :meth:`bs4.Tag.unwrap`.
+    Many documentation portals wrap cross-reference link text in a
+    presentational ``<span class="xreftitle">`` (and similar) that adds no
+    semantic value. The span complicates downstream conversion by stuffing
+    extra structure into the anchor. When the anchor's *only* non-whitespace
+    child is such a span, the span is replaced by its text contents via
+    :meth:`bs4.Tag.unwrap`.
 
     The helper is conservative: it skips spans that carry an explicit
     ``role`` / ``aria-*`` attribute, and spans whose class list is in
@@ -591,8 +600,15 @@ def _unwrap_decorative_anchor_spans(soup: BeautifulSoup) -> int:
 
 
 def _matches_orphan_anchor_trigger(text: str) -> bool:
-    """Return ``True`` when the trailing tail of ``text`` matches a trigger phrase."""
-    tail = text.rstrip()
+    """Return ``True`` when the trailing tail of ``text`` matches a trigger phrase.
+
+    Only the last :data:`_ORPHAN_ANCHOR_TAIL_WINDOW` characters of the
+    rstripped text are scanned. This keeps each trigger pattern (e.g.
+    ``r"\\bsee\\s*$"``) anchored to the actual sentence end so an early
+    occurrence deep inside a long paragraph cannot accidentally fire the
+    orphan-anchor lift on an unrelated trailing ``<a>``.
+    """
+    tail = text.rstrip()[-_ORPHAN_ANCHOR_TAIL_WINDOW:]
     return any(pattern.search(tail) for pattern in _ORPHAN_ANCHOR_TRIGGERS)
 
 
