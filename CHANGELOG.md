@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.3] - 2026-06-24
+
 ### Fixed
 
+- **Crawled pages silently lost content vs single-page fetches** (`extractor.py`) — a page
+  fetched on its own produced complete Markdown, but the same page reached deep in a
+  `--crawl` run dropped paragraphs (e.g. intro/abstract prose and the leading text before
+  inline code spans). Root cause: trafilatura's `deduplicate=True` keeps a **process-global**
+  LRU cache that persists across every page in a crawl, so once a shared paragraph had been
+  seen on a few sibling pages it was silently dropped from later pages — making a page's
+  output depend on its position in the crawl. Deduplication is now disabled
+  (`deduplicate=False`); genuine page chrome is already removed by `_preclean`, so intra-page
+  dedup added no value. The crawled `XQL-Language-Structure` page is now byte-identical to its
+  single-page fetch. Also covers the per-section `_extract_uuid_sections` path.
 - **Cross-reference links preserved through extraction** (`extractor.py`) — documentation-portal
   cross-references like "For more information, see [Link]." no longer render as a dangling link
   on a separate line. Decorative spans inside anchors are unwrapped and orphaned anchors are
@@ -209,7 +223,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/gs202/PageToMD/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/gs202/PageToMD/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/gs202/PageToMD/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/gs202/PageToMD/compare/v0.3.0...v0.4.0
