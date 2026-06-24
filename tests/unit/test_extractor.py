@@ -861,3 +861,87 @@ def test_extract_lifts_orphan_anchor_from_post_trafilatura_body(
         "Anchor remained an orphan sibling outside the paragraph.\n"
         f"Got cleaned_html:\n{result.cleaned_html}"
     )
+
+
+def test_extract_does_not_drop_shared_content_across_pages() -> None:
+    """Repeated ``extract`` calls in one process must not drop shared paragraphs.
+
+    Documentation portals repeat the same intro/abstract paragraphs and
+    boilerplate prose across many sibling pages.  Trafilatura's
+    ``deduplicate`` option keeps a *process-global* LRU cache that persists
+    between :func:`extract` calls, so once a paragraph has been seen on a few
+    earlier pages it is silently dropped from later pages — making the
+    extractor's output depend on how many pages preceded it in a crawl.
+
+    This is the root cause of the crawl-vs-single divergence: a single-page
+    fetch (fresh process, empty cache) keeps the paragraph, while the same
+    page reached deep in a crawl loses it.  The extractor must produce the
+    *same* content for a given page regardless of crawl position.
+
+    The fixture extracts several distinct pages that all share one boilerplate
+    paragraph, then asserts the shared paragraph still survives on the final
+    page.
+    """
+    shared = (
+        "Understand more about the Cortex Query Language called XQL, so you "
+        "can build queries to gain insight from the data contained in the "
+        "different data sources in Cortex XDR."
+    )
+
+    def page(unique_marker: str) -> str:
+        # Each page has unique body text plus the shared boilerplate paragraph.
+        body = (
+            f"This is the unique main content for page {unique_marker}. It is "
+            "long enough that trafilatura's recall heuristics latch onto the "
+            "article body and emit it as the main content block."
+        )
+        return (
+            f"<html><head><title>Page {unique_marker}</title></head>"
+            f"<body><article><h1>Page {unique_marker}</h1>"
+            f"<p>{body}</p><p>{shared}</p></article></body></html>"
+        )
+
+    config = make_config()
+
+    # Simulate a crawl: extract several distinct pages in the SAME process so
+    # the shared paragraph accumulates in any process-global dedup cache.
+    last_result: ExtractedDoc | None = None
+    for marker in ("alpha", "bravo", "charlie", "delta", "echo"):
+        last_result = extract(make_fetched_doc(page(marker)), config)
+
+    assert last_result is not None
+    assert "Understand more about the Cortex Query Language" in last_result.cleaned_html, (
+        "Shared boilerplate paragraph was dropped on a later page — the "
+        "extractor's output depends on crawl position (cross-page dedup "
+        "cache pollution).\n"
+        f"Got cleaned_html:\n{last_result.cleaned_html}"
+    )
+
+
+def test_extract_is_deterministic_on_identical_input() -> None:
+    """Two ``extract`` calls on byte-identical input must yield identical output.
+
+    Guards against non-deterministic extractor behaviour driven by any
+    process-global state (e.g. trafilatura's deduplication LRU cache). The
+    same input HTML must always map to the same ``cleaned_html``.
+    """
+    shared = (
+        "Repeated abstract paragraph that documentation portals reuse across "
+        "many sibling pages and which must never be dropped on a re-extract."
+    )
+    html = (
+        "<html><head><title>Determinism</title></head>"
+        "<body><article><h1>Determinism</h1>"
+        f"<p>{_BODY}</p><p>{shared}</p></article></body></html>"
+    )
+    doc = make_fetched_doc(html)
+    config = make_config()
+
+    first = extract(doc, config).cleaned_html
+    second = extract(doc, config).cleaned_html
+
+    assert first == second, (
+        "extract() produced different output for identical input — "
+        "non-deterministic extraction.\n"
+        f"first:\n{first}\n\nsecond:\n{second}"
+    )
