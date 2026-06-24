@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Final
 
 import trafilatura
 from bs4 import BeautifulSoup, Comment
-from bs4.element import Tag
+from bs4.element import NavigableString, Tag
 
 from pagetomd.exceptions import ExtractionEmptyError
 from pagetomd.logging import get_logger
@@ -54,7 +54,7 @@ JUNK_PATTERNS: Final[re.Pattern[str]] = re.compile(
     r"\b(cookie|consent|gdpr|newsletter|subscribe|signup|paywall|advert|"
     r"promo|sponsor|share|social|related|recommend|comments?|trending|"
     r"popular|sidebar|breadcrumb|skip-?(to-)?content|"
-    # FluidTopics portal UI chrome (repeated around every topic)
+    # Documentation-portal UI chrome (repeated around every topic)
     r"ft-popup-presenter|notificationcenter|drawerlasagna|"
     r"floating-container|banner-container|application-tools|"
     r"component-loader|loadingevent|feedback|topic-metadata|"
@@ -63,6 +63,38 @@ JUNK_PATTERNS: Final[re.Pattern[str]] = re.compile(
 )
 
 _LINK_ATTRS_TO_DROP: Final[frozenset[str]] = frozenset({"target", "rel"})
+
+# Span ``class`` values that mark visually-hidden / screen-reader-only text.
+# When the *only* child of an ``<a>`` is a span carrying one of these
+# classes the span is kept as-is — unwrapping it would leak text intended
+# for assistive tech into the rendered Markdown.
+_ACCESSIBILITY_SPAN_CLASSES: Final[frozenset[str]] = frozenset(
+    {"sr-only", "screen-reader-only", "visually-hidden"}
+)
+
+# Trailing phrases that indicate the preceding sentence is *introducing* a
+# cross-reference link (e.g. "...For more information, see"). Used to gate
+# the orphan-anchor lift so we never merge an unrelated trailing anchor
+# back into the preceding paragraph. Patterns are matched case-insensitively
+# against the last ``_ORPHAN_ANCHOR_TAIL_WINDOW`` characters of the rstripped
+# previous-sibling text.
+_ORPHAN_ANCHOR_TRIGGERS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\bsee\s*$", re.IGNORECASE),
+    re.compile(r"\bsee:\s*$", re.IGNORECASE),
+    re.compile(r"\brefer to\s*$", re.IGNORECASE),
+    re.compile(r"\bfor more information,?\s+see\s*$", re.IGNORECASE),
+)
+
+# Characters of trailing text scanned for a trigger phrase. Keeps the
+# match anchored to the actual sentence end so an early "...see" deep
+# inside a long paragraph cannot accidentally fire the orphan-anchor
+# lift on an unrelated trailing ``<a>``.
+_ORPHAN_ANCHOR_TAIL_WINDOW: Final[int] = 80
+
+# Punctuation NavigableStrings that travel back into the paragraph alongside
+# the anchor (e.g. the trailing "." in "...see [Link]."). Restricted to a
+# tight set so we never pull in adjacent prose.
+_ANCHOR_TRAILING_PUNCT: Final[frozenset[str]] = frozenset({".", ",", ";", ":", "!", "?"})
 
 # Patterns to recover a language hint from a ``<code>`` class list.
 # Shared with :mod:`pagetomd.converter`.
@@ -97,8 +129,8 @@ class ExtractedDoc:
 def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
     """Pre-clean ``doc.html`` then run trafilatura over the result.
 
-    For FluidTopics / Paligo portals the rendered HTML contains many
-    ``<section id="UUID-…">`` elements — one per topic — each wrapped in
+    Some documentation portals render every topic into a single
+    ``<section id="UUID-…">`` element — one per topic — each wrapped in
     identical UI chrome (print buttons, feedback dialogs, sign-in modals).
     Passing the full multi-megabyte blob to trafilatura causes it to pick
     only one "main content" block and discard the rest.  When UUID sections
@@ -165,7 +197,7 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
             _tag.decompose()
         extracted = trafilatura.extract(str(soup_fallback), **_trafilatura_kwargs)  # type: ignore[arg-type]
     if extracted is None or not extracted.strip():
-        # FluidTopics / Paligo portals embed many <section id="UUID-…"> topics
+        # Some documentation portals embed many <section id="UUID-…"> topics
         # inside a single multi-megabyte SPA shell.  Trafilatura cannot isolate
         # a single "main content" block from the full blob, so we detect UUID
         # sections and extract each one individually, then concatenate the
@@ -181,6 +213,20 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
             final_url=redact_url(doc.final_url),
         )
         raise ExtractionEmptyError("Extractor produced no readable content")
+
+    # Re-run the orphan-anchor lift on trafilatura's output. The orphan-
+    # anchor shape (``<a>`` promoted out of an enclosing ``<p>``) almost
+    # always emerges *during* trafilatura's body extraction, not before
+    # it, so the pre-clean pass alone cannot rescue cross-references
+    # like "For more information, see [Link]." emitted by documentation
+    # portals that nest the anchor inside extra wrappers. See plan
+    # .idex/plans/2026-06-23-preserve-cross-reference-links.md tasks 3-4
+    # for the failure mode and worked examples.
+    extracted_soup = BeautifulSoup(extracted, "lxml")
+    lifted = _lift_orphan_anchor_siblings(extracted_soup)
+    if lifted:
+        extracted = str(extracted_soup)
+        bound.debug("extract.orphan_anchors_lifted", count=lifted)
 
     meta = _safe_extract_metadata(cleaned_input_html, bound)
 
@@ -210,7 +256,7 @@ def _extract_uuid_sections(
     trafilatura_kwargs: dict[str, object],
     bound: object,
 ) -> str | None:
-    """Extract content from FluidTopics/Paligo UUID-keyed ``<section>`` elements.
+    """Extract content from UUID-keyed ``<section>`` elements.
 
     When a portal page embeds many ``<section id="UUID-…">`` topics inside a
     single SPA shell, trafilatura cannot isolate a single main-content block
@@ -302,6 +348,8 @@ def _preclean(html: str, include_comments: bool) -> tuple[str, dict[str, int]]:
         "role": 0,
         "link_attrs": 0,
         "lang_annotated": 0,
+        "decorative_spans": 0,
+        "orphan_anchors_lifted": 0,
     }
 
     # 1. Tags whose subtree we always discard.
@@ -374,6 +422,23 @@ def _preclean(html: str, include_comments: bool) -> tuple[str, dict[str, int]]:
             continue
         _annotate_code_language(pre, lang)
         removed["lang_annotated"] += 1
+
+    # 8. Unwrap decorative single-child ``<span>`` inside ``<a>``.
+    # Several documentation portals wrap xref link text in a presentational
+    # ``<span class="xreftitle">`` (and similar). The span carries no
+    # semantic role and only complicates downstream rendering, so we
+    # replace it with its text content while keeping the surrounding
+    # anchor intact.
+    removed["decorative_spans"] += _unwrap_decorative_anchor_spans(soup)
+
+    # 9. Lift orphan ``<a>`` siblings back into the preceding ``<p>``/``<li>``.
+    # Defensive on the pre-clean tree (most source HTML does not have the
+    # orphan-anchor shape until trafilatura repositions the node), but kept
+    # here so any source HTML that *does* present the shape is normalised
+    # before downstream stages see it. The same helper is invoked again in
+    # ``extract()`` on the post-trafilatura body, where the orphan pattern
+    # actually emerges for nested cross-reference markup.
+    removed["orphan_anchors_lifted"] += _lift_orphan_anchor_siblings(soup)
 
     return str(soup), removed
 
@@ -469,6 +534,159 @@ def _scrub_anchor_attrs(anchor: Tag) -> bool:
             del anchor.attrs[attr]
             removed_any = True
     return removed_any
+
+
+def _unwrap_decorative_anchor_spans(soup: BeautifulSoup) -> int:
+    """Unwrap decorative single-child ``<span>`` elements inside ``<a>``.
+
+    Many documentation portals wrap cross-reference link text in a
+    presentational ``<span class="xreftitle">`` (and similar) that adds no
+    semantic value. The span complicates downstream conversion by stuffing
+    extra structure into the anchor. When the anchor's *only* non-whitespace
+    child is such a span, the span is replaced by its text contents via
+    :meth:`bs4.Tag.unwrap`.
+
+    The helper is conservative: it skips spans that carry an explicit
+    ``role`` / ``aria-*`` attribute, and spans whose class list is in
+    :data:`_ACCESSIBILITY_SPAN_CLASSES` (e.g. ``sr-only``). It also
+    leaves anchors with multiple children untouched so inline icons or
+    badges next to the link text survive.
+
+    Args:
+        soup: The :class:`~bs4.BeautifulSoup` tree to mutate in place.
+
+    Returns:
+        The number of spans that were unwrapped.
+    """
+    unwrapped = 0
+    for anchor in soup.find_all("a"):
+        if not isinstance(anchor, Tag):  # pragma: no cover - defensive
+            continue
+
+        # Collect non-whitespace children. A bare whitespace ``NavigableString``
+        # (e.g. line break between ``<a>`` and ``<span>``) does not count as a
+        # sibling for the "sole child" heuristic.
+        meaningful = [
+            child
+            for child in anchor.children
+            if isinstance(child, Tag) or (isinstance(child, str) and child.strip())
+        ]
+        if len(meaningful) != 1:
+            continue
+        only = meaningful[0]
+        if not isinstance(only, Tag) or only.name != "span":
+            continue
+
+        # Skip semantically-marked spans — accessibility text, ARIA labels,
+        # or anything carrying an explicit role attribute.
+        if "role" in only.attrs:
+            continue
+        if any(attr.startswith("aria-") for attr in only.attrs):
+            continue
+
+        raw_classes: object = only.get("class") or []
+        if isinstance(raw_classes, str):  # pragma: no cover - bs4 normalises to list
+            classes: list[str] = [raw_classes]
+        elif isinstance(raw_classes, list):
+            classes = [str(c) for c in raw_classes]
+        else:  # pragma: no cover - defensive
+            classes = []
+        if any(cls in _ACCESSIBILITY_SPAN_CLASSES for cls in classes):
+            continue
+
+        only.unwrap()
+        unwrapped += 1
+    return unwrapped
+
+
+def _matches_orphan_anchor_trigger(text: str) -> bool:
+    """Return ``True`` when the trailing tail of ``text`` matches a trigger phrase.
+
+    Only the last :data:`_ORPHAN_ANCHOR_TAIL_WINDOW` characters of the
+    rstripped text are scanned. This keeps each trigger pattern (e.g.
+    ``r"\\bsee\\s*$"``) anchored to the actual sentence end so an early
+    occurrence deep inside a long paragraph cannot accidentally fire the
+    orphan-anchor lift on an unrelated trailing ``<a>``.
+    """
+    tail = text.rstrip()[-_ORPHAN_ANCHOR_TAIL_WINDOW:]
+    return any(pattern.search(tail) for pattern in _ORPHAN_ANCHOR_TRIGGERS)
+
+
+def _lift_orphan_anchor_siblings(soup: BeautifulSoup) -> int:
+    """Move orphan ``<a>`` elements back into the preceding ``<p>``/``<li>``.
+
+    Trafilatura's body-extraction algorithm occasionally promotes an ``<a>``
+    out of its enclosing paragraph, producing a tree shaped like::
+
+        <li><p>For more information, see</p><a href="…">Link</a>.</li>
+
+    Markdown rendering then emits the sentence and the link as two separate
+    blocks, breaking the prose flow. This helper finds every ``<a>`` whose
+    immediate previous sibling is a ``<p>`` / ``<li>`` whose visible text
+    ends with a "see"-style cross-reference cue (see
+    :data:`_ORPHAN_ANCHOR_TRIGGERS`), and moves the anchor — together with
+    any directly-adjacent trailing punctuation (``.``, ``,``, …) — into
+    the trailing position of that preceding container.
+
+    The transform is intentionally narrow: anchors that do not follow a
+    trigger phrase, or whose previous sibling is not a paragraph/list-item,
+    are left untouched. It is also idempotent — once the anchor is inside
+    the paragraph there is no orphan to lift on a subsequent pass.
+
+    Args:
+        soup: The :class:`~bs4.BeautifulSoup` tree to mutate in place.
+
+    Returns:
+        The number of anchors that were lifted.
+    """
+    lifted = 0
+    # Iterate over a materialised list because we mutate the tree as we go.
+    for anchor in list(soup.find_all("a")):
+        if not isinstance(anchor, Tag) or anchor.parent is None:
+            continue
+
+        # Find the previous *meaningful* sibling, skipping pure whitespace.
+        prev = anchor.previous_sibling
+        while isinstance(prev, NavigableString) and not prev.strip():
+            prev = prev.previous_sibling
+
+        if not isinstance(prev, Tag) or prev.name not in {"p", "li"}:
+            continue
+        if not _matches_orphan_anchor_trigger(prev.get_text(" ", strip=False)):
+            continue
+
+        # Collect the anchor and any directly-following trailing punctuation
+        # NavigableStrings so the moved phrase keeps its terminating period.
+        to_move: list[Tag | NavigableString] = [anchor]
+        cursor = anchor.next_sibling
+        while isinstance(cursor, NavigableString):
+            stripped = cursor.strip()
+            if not stripped:
+                # Pull along intervening whitespace if it sits between the
+                # anchor and a trailing punctuation token; otherwise stop.
+                nxt = cursor.next_sibling
+                if isinstance(nxt, NavigableString) and nxt.strip() in _ANCHOR_TRAILING_PUNCT:
+                    to_move.append(cursor)
+                    cursor = nxt
+                    continue
+                break
+            if stripped in _ANCHOR_TRAILING_PUNCT:
+                to_move.append(cursor)
+                cursor = cursor.next_sibling
+                continue
+            break
+
+        # Detach in order, then re-attach inside ``prev`` preserving order.
+        # Prepend a single space if the paragraph does not already end in
+        # whitespace, so we never glue "see" directly to "[Link]".
+        prev_text = prev.get_text("", strip=False)
+        if prev_text and not prev_text[-1].isspace():
+            prev.append(NavigableString(" "))
+        for node in to_move:
+            node.extract()
+            prev.append(node)
+        lifted += 1
+    return lifted
 
 
 def _safe_extract_metadata(html: str, bound: object) -> object | None:

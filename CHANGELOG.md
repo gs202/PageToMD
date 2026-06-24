@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **Cross-reference links preserved through extraction** (`extractor.py`) — documentation-portal
+  cross-references like "For more information, see [Link]." no longer render as a dangling link
+  on a separate line. Decorative spans inside anchors are unwrapped and orphaned anchors are
+  lifted back into the preceding sentence.
+- **Verbose trafilatura output silenced** (`logging.py`) — trafilatura and friends
+  (`courlan`, `htmldate`, `readability`) are pinned to a WARNING floor unless `--log-level=debug`
+  is set, removing the per-page DEBUG/INFO firehose.
 
 ## [0.4.2] - 2026-06-21
 
@@ -27,8 +35,8 @@ _Nothing yet._
 
 ### Fixed
 
-- **FluidTopics / Paligo UUID-section extraction** (`extractor.py`) — pages served by
-  FluidTopics portals can embed topic content inside `<section id="UUID-…">` elements
+- **UUID-section extraction** (`extractor.py`) — some documentation-portal
+  pages embed topic content inside `<section id="UUID-…">` elements
   within a single 1–2 MB SPA shell. Trafilatura cannot isolate a main-content block from
   the full blob and returns `None`, causing `ExtractionEmptyError` even though the page
   has rich content. A new `_extract_uuid_sections` fallback detects these sections, runs
@@ -165,7 +173,7 @@ _Nothing yet._
 ### Added
 
 - **Site crawl (`--crawl`)** — BFS-crawl every same-subtree link under a seed URL and write one `.md` file per page into a directory that mirrors the URL hierarchy. Configurable via `--crawl-depth N` (default 1) and `--overwrite`. A single fetcher context is reused across the whole crawl, so Playwright doesn't relaunch Chromium per page.
-- **Shadow DOM / FluidTopics support** — the Playwright fetcher now serialises shadow roots recursively, capturing content inside Web Components that the static DOM misses entirely.
+- **Shadow DOM support** — the Playwright fetcher now serialises shadow roots recursively, capturing content inside Web Components that the static DOM misses entirely.
 - **"Choosing a mode" README section** — new decision table and prose explaining when to use `httpx`, `playwright`, `auto`, and `--crawl`.
 - **`uv run` usage** — README now documents how to run `pagetomd` without installing via `uv run --with pagetomd`.
 - **`pytest-xdist`** — parallel test execution via `-n auto --dist=loadscope`.

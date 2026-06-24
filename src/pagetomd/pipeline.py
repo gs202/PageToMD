@@ -55,7 +55,9 @@ _SPA_MARKERS: Final[tuple[str, ...]] = (
     '<div id="__next"',
     '<div id="__nuxt"',
     "<noscript>you need to enable javascript",
-    # FluidTopics / GWT portals
+    # Documentation-portal SPA shell markers (e.g. GWT-based portals).
+    # ``fluidtopicsclient`` is a real client-class literal emitted by one such
+    # portal and must stay verbatim — it is a matched substring, not branding.
     "fluidtopicsclient",
     "loading application...",
     # Generic "JS required" noscript patterns

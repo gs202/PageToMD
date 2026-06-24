@@ -111,6 +111,45 @@ def test_news(
     assert output == snapshot
 
 
+def test_cross_reference_links(
+    snapshot: Any,
+    tmp_path: Path,
+    fixture_html: Callable[[str], str],
+    fake_fetcher_factory: Callable[..., Fetcher],
+) -> None:
+    """Documentation-portal cross-reference patterns render correctly.
+
+    Locks in the link-preservation behaviour for nested-markup cross
+    references emitted by documentation portals:
+
+    - Pattern A (orphan bare anchor inside ``<li><p>…see <a>…</a>.</p></li>``)
+      renders on a single bullet line, not split into two blocks.
+    - Pattern B (``<a><span class='xreftitle'>…</span></a>``) renders as a
+      clean Markdown link with no leaked ``xreftitle`` markup.
+    - Pattern C (cross-reference prose with no ``<a>`` in source) passes
+      through unchanged — no fake link is injected.
+    """
+    fetcher = fake_fetcher_factory(fixture_html("cross_reference_links.html"))
+    output = _run_and_read(tmp_path, fetcher)
+
+    # Defence-in-depth invariants, independent of the snapshot wiring.
+    expected_pattern_a = (
+        "Identity Engine must be set up. For more information, see [Identity Engine Setup]"
+    )
+    assert expected_pattern_a in output, (
+        "Pattern A link must render inline on its bullet, not split into a "
+        f"separate block. Got:\n{output}"
+    )
+    assert "[Assistant role-based access control](" in output, (
+        f"Pattern B xref link missing from rendered Markdown:\n{output}"
+    )
+    assert "xreftitle" not in output, (
+        f"Decorative ``xreftitle`` class leaked into Markdown output:\n{output}"
+    )
+
+    assert output == snapshot
+
+
 def test_spa_vue_httpx_raises_empty(
     tmp_path: Path,
     fixture_html: Callable[[str], str],
