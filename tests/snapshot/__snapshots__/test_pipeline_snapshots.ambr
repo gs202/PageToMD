@@ -153,6 +153,40 @@
   
   '''
 # ---
+# name: test_cross_reference_links
+  '''
+  ---
+  url: https://example.test/page
+  final_url: https://example.test/page
+  title: Configure Analytics Engine
+  tool: pagetomd
+  tool_version: <REDACTED>
+  ---
+  
+  # Configure Analytics Engine
+  
+  From the management console you can configure analytics engines to detect threats across your environment. The following sections describe the prerequisites and the workflow for enabling each engine. Make sure every prerequisite is satisfied before you turn on the engines, otherwise detection coverage will be partial and noisy.
+  
+  ## Identity Analytics prerequisites
+  
+  Before you activate Identity Analytics, confirm the following items are in place. Each prerequisite ensures the engine has the telemetry it needs to score user behaviour reliably across endpoints, cloud accounts and on-prem directory services.
+  
+  - Analytics Engine must be activated for your tenant.
+  - Identity Engine must be set up. For more information, see [Identity Engine Setup](https://docs.example.com/r/GD6sG6FlxDWxAn13_eZuUQ/c~Ez47XfCHk0H2jLU85Vgg).
+  
+  ## Assistant access
+  
+  To manage agents in the Agents Hub, you must have the proper permissions.
+  For more information, see [Assistant role-based access control](https://docs.example.com/r/GD6sG6FlxDWxAn13_eZuUQ/lC97_80YTaLhcwWrxkWjoA).
+  
+  ## Logging notes
+  
+  Adding host DHCP logs can enhance the Analytics Engine. For more information, see Ingest Host DHCP Logs with a Collector Profile.
+  
+  After every prerequisite is satisfied, navigate to the Analytics settings panel and enable each engine in turn. Creating a baseline can take up to three hours, during which detection coverage ramps up gradually as the engines learn what normal activity looks like in your environment.
+  
+  '''
+# ---
 # name: test_docs
   '''
   ---
@@ -345,40 +379,6 @@
   Not every council member came to the vote enthusiastically. Council member David Chen, who had previously argued for a cheaper partial-repair option, said he ultimately supported the full package because "doing this twice would cost more than doing it right once." He cautioned, however, that the city would need to "watch the change orders like a hawk" once construction begins.
   
   The Riverside Bridge connects the east and west sides of the city across the Riverside River. Approximately twenty-two thousand vehicles cross it each day, according to the most recent traffic survey, making it the second-busiest river crossing in the metropolitan area.
-  
-  '''
-# ---
-# name: test_panw_cross_refs
-  '''
-  ---
-  url: https://example.test/page
-  final_url: https://example.test/page
-  title: Configure Cortex XDR Analytics
-  tool: pagetomd
-  tool_version: <REDACTED>
-  ---
-  
-  # Configure Cortex XDR Analytics
-  
-  From the Cortex XDR management console you can configure analytics engines to detect threats across your environment. The following sections describe the prerequisites and the workflow for enabling each engine. Make sure every prerequisite is satisfied before you turn on the engines, otherwise detection coverage will be partial and noisy.
-  
-  ## Identity Analytics prerequisites
-  
-  Before you activate Identity Analytics, confirm the following items are in place. Each prerequisite ensures the engine has the telemetry it needs to score user behaviour reliably across endpoints, cloud accounts and on-prem directory services.
-  
-  - Cortex XDR Analytics must be activated for your tenant.
-  - Cloud Identity Engine must be set up. For more information, see [Cloud Identity Engine](https://docs-cortex.paloaltonetworks.com/r/GD6sG6FlxDWxAn13_eZuUQ/c~Ez47XfCHk0H2jLU85Vgg).
-  
-  ## Agentic Assistant access
-  
-  To manage agents in the Agents Hub, you must have the proper permissions.
-  For more information, see [Agentic Assistant role-based access control](https://docs-cortex.paloaltonetworks.com/r/GD6sG6FlxDWxAn13_eZuUQ/lC97_80YTaLhcwWrxkWjoA).
-  
-  ## Logging notes
-  
-  Adding Windows DHCP logs can enhance the Analytics Engine. For more information, see Ingest Windows DHCP Logs with an XDR Collector Profile.
-  
-  After every prerequisite is satisfied, navigate to the Analytics settings panel and enable each engine in turn. Creating a baseline can take up to three hours, during which detection coverage ramps up gradually as the engines learn what normal activity looks like in your environment.
   
   '''
 # ---

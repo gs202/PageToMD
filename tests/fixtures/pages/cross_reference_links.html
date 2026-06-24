@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Configure Cortex XDR Analytics — PANW cross-references</title>
+  <title>Configure Analytics Engine — cross-reference link patterns</title>
 </head>
 <body>
 <article>
-  <h1>Configure Cortex XDR Analytics</h1>
+  <h1>Configure Analytics Engine</h1>
 
-  <p>From the Cortex XDR management console you can configure analytics engines
+  <p>From the management console you can configure analytics engines
     to detect threats across your environment. The following sections describe
     the prerequisites and the workflow for enabling each engine. Make sure
     every prerequisite is satisfied before you turn on the engines, otherwise
@@ -21,21 +21,21 @@
     directory services.</p>
 
   <ul class="itemizedlist">
-    <li class="listitem"><p>Cortex XDR Analytics must be activated for your tenant.</p></li>
+    <li class="listitem"><p>Analytics Engine must be activated for your tenant.</p></li>
 
     <!-- Pattern A: bare anchor inside <p> inside <li> — trafilatura promotes
          the <a> out of the <p>, producing an orphan-anchor sibling that
          renders as two separate Markdown blocks (sentence + dangling link). -->
-    <li class="listitem"><p>Cloud Identity Engine must be set up. For more information, see <a class="link linktype-component ft-internal-link" href="https://docs-cortex.paloaltonetworks.com/r/GD6sG6FlxDWxAn13_eZuUQ/c~Ez47XfCHk0H2jLU85Vgg" title="Set up Cloud Identity Engine">Cloud Identity Engine</a>.</p></li>
+    <li class="listitem"><p>Identity Engine must be set up. For more information, see <a class="link linktype-component internal-link" href="https://docs.example.com/r/GD6sG6FlxDWxAn13_eZuUQ/c~Ez47XfCHk0H2jLU85Vgg" title="Identity Engine Setup">Identity Engine Setup</a>.</p></li>
   </ul>
 
-  <h2>Agentic Assistant access</h2>
+  <h2>Assistant access</h2>
 
   <!-- Pattern B: anchor whose only child is a decorative <span class="xreftitle">.
        Survives trafilatura today but leaves the xreftitle class on output;
        we strip the span and keep the link text. -->
   <p>To manage agents in the Agents Hub, you must have the proper permissions.
-    For more information, see <a class="xref linktype-component ft-internal-link" href="https://docs-cortex.paloaltonetworks.com/r/GD6sG6FlxDWxAn13_eZuUQ/lC97_80YTaLhcwWrxkWjoA" title="Agentic Assistant role-based access control"><span class="xreftitle">Agentic Assistant role-based access control</span></a>.</p>
+    For more information, see <a class="xref linktype-component internal-link" href="https://docs.example.com/r/GD6sG6FlxDWxAn13_eZuUQ/lC97_80YTaLhcwWrxkWjoA" title="Assistant role-based access control"><span class="xreftitle">Assistant role-based access control</span></a>.</p>
 
   <h2>Logging notes</h2>
 
@@ -43,8 +43,8 @@
        Not pagetomd's bug to fix — the link is missing upstream.
        This entry exists as a control: the text must pass through unchanged
        and no synthetic link should be injected. -->
-  <p>Adding Windows DHCP logs can enhance the Analytics Engine. For more
-    information, see Ingest Windows DHCP Logs with an XDR Collector Profile.</p>
+  <p>Adding host DHCP logs can enhance the Analytics Engine. For more
+    information, see Ingest Host DHCP Logs with a Collector Profile.</p>
 
   <p>After every prerequisite is satisfied, navigate to the Analytics settings
     panel and enable each engine in turn. Creating a baseline can take up to

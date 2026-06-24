@@ -111,15 +111,16 @@ def test_news(
     assert output == snapshot
 
 
-def test_panw_cross_refs(
+def test_cross_reference_links(
     snapshot: Any,
     tmp_path: Path,
     fixture_html: Callable[[str], str],
     fake_fetcher_factory: Callable[..., Fetcher],
 ) -> None:
-    """PANW FluidTopics / Paligo cross-reference patterns render correctly.
+    """Documentation-portal cross-reference patterns render correctly.
 
-    Locks in the Phase 1+2 link-preservation behaviour:
+    Locks in the link-preservation behaviour for nested-markup cross
+    references emitted by documentation portals:
 
     - Pattern A (orphan bare anchor inside ``<li><p>…see <a>…</a>.</p></li>``)
       renders on a single bullet line, not split into two blocks.
@@ -128,18 +129,18 @@ def test_panw_cross_refs(
     - Pattern C (cross-reference prose with no ``<a>`` in source) passes
       through unchanged — no fake link is injected.
     """
-    fetcher = fake_fetcher_factory(fixture_html("panw_cross_refs.html"))
+    fetcher = fake_fetcher_factory(fixture_html("cross_reference_links.html"))
     output = _run_and_read(tmp_path, fetcher)
 
     # Defence-in-depth invariants, independent of the snapshot wiring.
     expected_pattern_a = (
-        "Cloud Identity Engine must be set up. For more information, see [Cloud Identity Engine]"
+        "Identity Engine must be set up. For more information, see [Identity Engine Setup]"
     )
     assert expected_pattern_a in output, (
         "Pattern A link must render inline on its bullet, not split into a "
         f"separate block. Got:\n{output}"
     )
-    assert "[Agentic Assistant role-based access control](" in output, (
+    assert "[Assistant role-based access control](" in output, (
         f"Pattern B xref link missing from rendered Markdown:\n{output}"
     )
     assert "xreftitle" not in output, (
