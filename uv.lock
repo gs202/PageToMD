@@ -777,7 +777,7 @@ requires-dist = [
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.155.3" },
     { name = "lxml", specifier = ">=6.1" },
     { name = "markdownify", specifier = ">=1.2" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11,<2" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11,<3" },
     { name = "playwright", marker = "extra == 'playwright'", specifier = ">=1.60" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },

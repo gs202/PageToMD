@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **Page title no longer extracted as "Note" on SPA documentation portals** (`extractor.py`) —
+  every page from some documentation portals was given `title: Note` in its frontmatter. Once
+  the rendered topic body reaches trafilatura, its title heuristic latches onto the first
+  admonition heading (e.g. "Note") and files the real page title under `sitename`. The
+  extractor now prefers the page's own `<title>` tag (stripping the trailing site-name segment)
+  and falls back to trafilatura's title only when no usable `<title>` exists or it is merely the
+  site name. Affects both single-page and `--crawl` runs, which share the extractor.
+
+### Documentation
+
+- **Frontmatter field meanings clarified** (`README.md`) — a short note now explains that `url`
+  is the requested URL vs `final_url` the URL after redirects, and `date` is the content's
+  publication date vs `fetched_at` the retrieval time.
 
 ## [0.4.3] - 2026-06-24
 

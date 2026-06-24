@@ -190,6 +190,11 @@ Three years ago, our monorepo build pipeline was a sprawling Python application 
 
 When `fetched_at` is enabled (the default), an extra `fetched_at: '2026-06-15T12:34:56Z'` line is included in the frontmatter. Fields whose value cannot be detected (e.g. `language`, `author`) are omitted from the YAML.
 
+Two field pairs look similar but mean different things:
+
+- `url` is the URL you requested; `final_url` is where you landed after any redirects (they match when there's no redirect).
+- `date` is the content's own publication date (from the page metadata); `fetched_at` is when pagetomd retrieved the page.
+
 ## Common options
 
 A compact overview — see `pagetomd --help` for the full list.

@@ -242,8 +242,20 @@ def extract(doc: FetchedDoc, config: Config) -> ExtractedDoc:
 
     meta = _safe_extract_metadata(cleaned_input_html, bound)
 
+    # trafilatura's title heuristic is unreliable on SPA documentation
+    # portals: when the full topic content is present in the body it latches
+    # onto the first admonition heading (e.g. "Note") and files the real page
+    # title under ``sitename``. The page's own ``<title>`` tag carries the
+    # author-declared title, so prefer it and fall back to trafilatura only
+    # when no usable <title> exists.
+    title = _resolve_title(
+        title_tag=_title_from_html(doc.html),
+        trafilatura_title=_clean_str(getattr(meta, "title", None)),
+        site_name=_clean_str(getattr(meta, "sitename", None)),
+    )
+
     result = ExtractedDoc(
-        title=_clean_str(getattr(meta, "title", None)),
+        title=title,
         author=_clean_str(getattr(meta, "author", None)),
         date=_clean_str(getattr(meta, "date", None)),
         description=_clean_str(getattr(meta, "description", None)),
@@ -716,3 +728,71 @@ def _clean_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+# Separators documentation portals use between the page title and the site
+# name in the ``<title>`` tag, e.g. "Page Title | Section | Site Name".
+# Characters: bullet, pipe, en dash, em dash, right guillemet, and hyphen.
+_TITLE_SEPARATORS: Final = re.compile(r"\s+[\u2022|\u2013\u2014\u00bb]\s+|\s+-\s+")
+
+
+def _title_from_html(html: str) -> str | None:
+    """Return the page-specific portion of the ``<title>`` tag, if any.
+
+    Documentation portals append the site name to the page title using a
+    separator (``•``, ``|``, ``-`` …), e.g.
+    ``"Page Title • Documentation Section • Site Name"``.
+    The first segment is the page-specific title, so split on the separator
+    and keep the leading segment.
+
+    Args:
+        html: Raw (rendered) HTML to scan for a ``<title>`` tag.
+
+    Returns:
+        The page-specific title segment, or ``None`` when no usable
+        ``<title>`` is present.
+    """
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:  # pragma: no cover - defensive parse guard
+        return None
+    title_el = soup.find("title")
+    if title_el is None:
+        return None
+    raw = _clean_str(title_el.get_text(strip=True))
+    if raw is None:
+        return None
+    first_segment = _TITLE_SEPARATORS.split(raw)[0]
+    return _clean_str(first_segment)
+
+
+def _resolve_title(
+    *,
+    title_tag: str | None,
+    trafilatura_title: str | None,
+    site_name: str | None,
+) -> str | None:
+    """Pick the best available page title.
+
+    Prefers the page's own ``<title>`` tag (``title_tag``) because
+    trafilatura's metadata heuristic is unreliable on SPA documentation
+    portals, where it can return the first admonition heading (e.g. "Note")
+    instead of the real title. The ``<title>`` value wins unless it is
+    missing or merely the site name, in which case trafilatura's value is
+    used as the fallback.
+
+    Args:
+        title_tag: Page-specific title mined from the ``<title>`` tag.
+        trafilatura_title: Title reported by ``trafilatura.extract_metadata``.
+        site_name: Site name reported by trafilatura, used to reject a
+            ``<title>`` that is nothing more than the site name.
+
+    Returns:
+        The chosen title, or ``None`` when neither source yields one.
+    """
+    # Use the <title> tag unless it is only the site name (generic SPA shell).
+    if title_tag is not None and (
+        site_name is None or title_tag.casefold() != site_name.casefold()
+    ):
+        return title_tag
+    return trafilatura_title
