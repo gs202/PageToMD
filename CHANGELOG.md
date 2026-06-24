@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.4] - 2026-06-24
+
 ### Fixed
 
 - **Page title no longer extracted as "Note" on SPA documentation portals** (`extractor.py`) —
@@ -237,7 +241,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/gs202/PageToMD/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/gs202/PageToMD/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/gs202/PageToMD/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/gs202/PageToMD/compare/v0.4.0...v0.4.1
