@@ -52,6 +52,12 @@ _SLUG_MAX_LENGTH: int = 80
 # Fallback slug when every other heuristic yields an empty string.
 _FALLBACK_SLUG: str = "page"
 
+# Slug values that should be treated as empty and skipped during candidate
+# evaluation.  ``"index"`` is the most common: it carries no topic
+# information and causes collisions when multiple pages in a crawl each
+# resolve to ``index.md``.
+_SKIP_SLUGS: frozenset[str] = frozenset({"index"})
+
 # Windows reserved device-name stems (case-insensitive). A file named after
 # one of these collides with a DOS device on Windows even with a ``.md``
 # extension.
@@ -211,6 +217,12 @@ def slugify_default_path(fetched: FetchedDoc, extracted: ExtractedDoc) -> Path:
     url_candidate = _slug_candidate_from_url(fetched.final_url)
     if url_candidate:
         candidates.append(url_candidate)
+    # Add the hostname as a last-resort candidate so that when both the
+    # title and URL last-segment slug to a skipped value (e.g. ``"index"``),
+    # we still get a meaningful filename instead of the generic ``"page.md"``.
+    parts = urlsplit(fetched.final_url)
+    if parts.hostname:
+        candidates.append(parts.hostname)
 
     slug = ""
     for candidate in candidates:
@@ -220,8 +232,9 @@ def slugify_default_path(fetched: FetchedDoc, extracted: ExtractedDoc) -> Path:
             lowercase=True,
             word_boundary=True,
         )
-        if slug:
+        if slug and slug not in _SKIP_SLUGS:
             break
+        slug = ""  # Reset so the loop tries the next candidate.
     if not slug:
         slug = _FALLBACK_SLUG
     # Windows reserved-name guard: even with the ``.md`` extension,

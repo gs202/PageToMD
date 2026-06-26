@@ -65,6 +65,17 @@ _SPA_MARKERS: Final[tuple[str, ...]] = (
     "requires javascript",
 )
 
+# Compiled patterns that *unconditionally* indicate an SPA shell, regardless of
+# body text length.  Some documentation portals ship SPA loading shells with
+# enough inline JSON/CSS to push the visible-text count above
+# ``_SPA_BODY_TEXT_THRESHOLD``, defeating the sparse-body check.  These
+# patterns catch those cases by matching known placeholder ``<title>`` values.
+_SPA_SHELL_UNCONDITIONAL: Final[tuple[re.Pattern[str], ...]] = (
+    # Generic SPA reader/viewer shell — the page title is a placeholder
+    # that the JS app replaces once it finishes loading.
+    re.compile(r"<title>\s*Reader\s*</title>", re.IGNORECASE),
+)
+
 _STDOUT_SENTINEL = Path("-")
 
 
@@ -252,8 +263,17 @@ _RE_HTML_TAG: Final = re.compile(r"<[^>]+>")
 def _should_fallback_to_playwright(html: str) -> bool:
     """Return ``True`` when ``html`` looks like an unrendered SPA shell.
 
-    Requires both a sparse ``<body>`` (below :data:`_SPA_BODY_TEXT_THRESHOLD`)
-    and at least one SPA marker to fire, keeping the false-positive rate low.
+    Two independent checks, evaluated in order:
+
+    1. **Unconditional patterns** — if the ``<title>`` matches a known SPA
+       loading-shell signature (e.g. ``<title>Reader</title>``), return
+       ``True`` immediately regardless of body length.  These patterns have
+       zero false-positive risk because they match portal-generated
+       placeholder titles that never appear in real documentation.
+
+    2. **Sparse body + SPA marker** — if the visible ``<body>`` text is
+       below :data:`_SPA_BODY_TEXT_THRESHOLD` *and* at least one SPA marker
+       substring is found, return ``True``.
 
     Uses substring/regex scanning instead of a full HTML parse to avoid the
     ~30-100 ms lxml overhead on every auto-fetcher page.
@@ -261,6 +281,11 @@ def _should_fallback_to_playwright(html: str) -> bool:
     if not html:
         return False
 
+    # ── Check 1: unconditional shell patterns (title-based) ──────────
+    if any(pat.search(html) for pat in _SPA_SHELL_UNCONDITIONAL):
+        return True
+
+    # ── Check 2: sparse body + SPA marker ────────────────────────────
     # Estimate visible body text length via regex.
     # 1. Extract the <body> block.
     # 2. Strip <script>/<style> blocks including their text content — inline

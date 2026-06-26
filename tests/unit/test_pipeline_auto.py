@@ -100,6 +100,14 @@ class _FakePlaywright:
         self.closed = True
 
 
+def _reader_shell_html(body_padding: str = "") -> str:
+    """Build a 'Reader' SPA shell page, optionally with inline padding."""
+    return (
+        "<html><head><title>Reader</title></head>"
+        f"<body><div>Loading application...</div>{body_padding}</body></html>"
+    )
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
@@ -126,6 +134,18 @@ class _FakePlaywright:
         ),
         # Empty input is a no-op.
         ("", False),
+        # ── Unconditional shell patterns (title-based) ───────────────
+        # Reader shell — sparse body.
+        (_reader_shell_html(), True),
+        # Reader shell — body padded above threshold (inline JS/CSS).
+        (_reader_shell_html("<script>" + "x" * 500 + "</script>"), True),
+        # Title is "Reader" but body is genuinely rich — still triggers
+        # because the title is a known loading-shell signature.
+        (
+            "<html><head><title>Reader</title></head>"
+            f"<body><article><p>{_RICH_BODY_TEXT}</p></article></body></html>",
+            True,
+        ),
     ],
 )
 def test_should_fallback_truth_table(html: str, expected: bool) -> None:
