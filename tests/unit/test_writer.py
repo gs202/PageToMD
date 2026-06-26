@@ -287,6 +287,42 @@ def test_slugify_does_not_suffix_non_reserved_prefix() -> None:
     assert path == Path("conference.md")
 
 
+def test_slugify_skips_index_title_falls_through_to_url() -> None:
+    """Title 'Index' produces slug 'index' which is skipped → URL fallback."""
+    path = slugify_default_path(
+        make_fetched_doc(url="https://example.com/blog/my-article"),
+        _make_extracted(title="Index"),
+    )
+    assert path == Path("my-article.md")
+
+
+def test_slugify_skips_index_url_falls_through_to_host() -> None:
+    """Both title and URL last-segment resolve to 'index' → host fallback."""
+    path = slugify_default_path(
+        make_fetched_doc(url="https://example.com/index"),
+        _make_extracted(title="Index"),
+    )
+    assert path == Path("example-com.md")
+
+
+def test_slugify_skips_index_from_url_only() -> None:
+    """No title, URL last segment is 'index' → host fallback."""
+    path = slugify_default_path(
+        make_fetched_doc(url="https://example.com/docs/index"),
+        _make_extracted(title=""),
+    )
+    assert path == Path("example-com.md")
+
+
+def test_slugify_allows_indexing_title() -> None:
+    """Titles *containing* 'index' are fine — only exact 'index' is skipped."""
+    path = slugify_default_path(
+        make_fetched_doc(url="https://example.com/x"),
+        _make_extracted(title="Indexing Strategies"),
+    )
+    assert path == Path("indexing-strategies.md")
+
+
 def test_write_happy_path(tmp_path: Path) -> None:
     """Writes frontmatter + body + trailing newline; returns target."""
     target = tmp_path / "out.md"
