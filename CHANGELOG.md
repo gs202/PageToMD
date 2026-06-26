@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.4.5] - 2026-06-26
+
+### Fixed
+
+- **SPA reader-shell pages no longer slip past the auto-fetcher** (`pipeline.py`) — documentation
+  portals that return a `<title>Reader</title>` loading shell were not triggering the Playwright
+  fallback when their inline JS/CSS inflated the visible-text count above the 200-character
+  threshold. A new unconditional title-based check in `_should_fallback_to_playwright` now
+  detects known SPA placeholder titles and triggers the fallback regardless of body text length.
+
+- **Default output filename no longer resolves to `index.md`** (`writer.py`) — pages whose title
+  or URL last-segment slugifies to `"index"` now skip that candidate and fall through to the
+  next (URL path → hostname → `"page"`). Prevents silent overwrites when multiple crawled pages
+  each resolve to `index.md`. The hostname is also added as a separate fallback candidate so
+  skipped slugs get a meaningful filename instead of the generic `page.md`.
+
 ## [0.4.4] - 2026-06-24
 
 ### Fixed
@@ -241,7 +257,8 @@ _Nothing yet._
 - **GitHub Actions release workflow** — builds sdist + wheel, publishes to PyPI via Trusted Publishing (OIDC), and creates a GitHub Release with changelog body.
 - **Test suites** — unit, integration (e2e httpx/playwright, determinism, packaging), property-based (`hypothesis`), and snapshot tests with 8 HTML fixture pages.
 
-[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/gs202/PageToMD/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/gs202/PageToMD/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/gs202/PageToMD/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/gs202/PageToMD/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/gs202/PageToMD/compare/v0.4.1...v0.4.2
